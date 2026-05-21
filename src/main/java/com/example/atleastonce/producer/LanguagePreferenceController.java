@@ -11,15 +11,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/language-preferences")
 public class LanguagePreferenceController {
 
-    private final LanguagePreferenceProducer producer;
+  private final LanguagePreferenceProducer producer;
 
-    public LanguagePreferenceController(LanguagePreferenceProducer producer) {
-        this.producer = producer;
-    }
+  public LanguagePreferenceController(LanguagePreferenceProducer producer) {
+    this.producer = producer;
+  }
 
-    @PostMapping
-    public ResponseEntity<String> publish(@RequestBody LanguagePreference event) {
-        producer.publish(event);
-        return ResponseEntity.accepted().body("Event queued: " + event.customerId());
-    }
+  @PostMapping
+  public ResponseEntity<String> publish(@RequestBody LanguagePreference event) {
+    producer.publish(event);
+    return ResponseEntity.accepted().body("Event queued: " + event.customerId());
+  }
 }

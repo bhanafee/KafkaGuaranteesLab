@@ -1,1 +1,13 @@
 rootProject.name = 'at-least-once'
+
+gradle.beforeProject { proj ->
+    if (proj == proj.rootProject) {
+        def tomlFile = new File(proj.rootDir, 'gradle/libs.versions.toml')
+        tomlFile.eachLine { line ->
+            def matcher = line =~ /^patch-[a-z0-9-]+ = \{ module = "([^"]+)", version = \{ strictly = "[^"]+", prefer = "([^"]+)"/
+            if (matcher) {
+                proj.buildscript.dependencies.add('classpath', "${matcher[0][1]}:${matcher[0][2]}")
+            }
+        }
+    }
+}
