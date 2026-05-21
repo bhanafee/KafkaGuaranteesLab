@@ -16,8 +16,7 @@ import org.springframework.test.annotation.DirtiesContext;
 @DirtiesContext
 @EmbeddedKafka(
     partitions = 1,
-    topics = {LanguagePreferenceProducer.TOPIC},
-    brokerProperties = {"listeners=PLAINTEXT://localhost:9093", "port=9093"})
+    topics = {LanguagePreferenceProducer.TOPIC})
 class LanguagePreferenceProducerTest {
 
   @Autowired private LanguagePreferenceProducer producer;
