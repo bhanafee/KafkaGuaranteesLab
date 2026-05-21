@@ -3,23 +3,22 @@
 java = "21"
 
 # Plugin versions
-spring-boot           = "3.4.4"
+spring-boot           = "4.0.6"
 spring-dep-mgmt       = "1.1.7"
-resilience4j          = "2.3.0"
-micrometer-prometheus = "1.14.5"
+resilience4j          = "2.4.0"
 spotless              = "8.+"
 owasp-dependencycheck = "12.+"
 
 [libraries]
 spring-boot-web          = { module = "org.springframework.boot:spring-boot-starter-web" }
 spring-boot-actuator     = { module = "org.springframework.boot:spring-boot-starter-actuator" }
-spring-boot-aop          = { module = "org.springframework.boot:spring-boot-starter-aop" }
+spring-boot-aspectj      = { module = "org.springframework.boot:spring-boot-starter-aspectj" }
 spring-boot-test         = { module = "org.springframework.boot:spring-boot-starter-test" }
 spring-kafka             = { module = "org.springframework.kafka:spring-kafka" }
 spring-kafka-test        = { module = "org.springframework.kafka:spring-kafka-test" }
-resilience4j-spring-boot = { module = "io.github.resilience4j:resilience4j-spring-boot3",  version.ref = "resilience4j" }
+resilience4j-spring-boot = { module = "io.github.resilience4j:resilience4j-spring-boot4",  version.ref = "resilience4j" }
 resilience4j-test        = { module = "io.github.resilience4j:resilience4j-test",           version.ref = "resilience4j" }
-micrometer-prometheus    = { module = "io.micrometer:micrometer-registry-prometheus",       version = "1.14.5" }
+micrometer-prometheus    = { module = "io.micrometer:micrometer-registry-prometheus" }
 
 # Security patches - BouncyCastle (CVE-2026-5598 covers all prior bcprov/bcpg CVEs)
 patch-cve-2026-5598-bcpg   = { module = "org.bouncycastle:bcpg-jdk18on",                    version = { strictly = "[1.84,)", prefer = "1.84" } }
