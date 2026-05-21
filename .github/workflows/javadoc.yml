@@ -7,38 +7,42 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-javadoc:
+  deploy-javadoc:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed by the Javadoc publisher action to generate/commit
-      pages: write   # Needed for the deploy-pages action
-      id-token: write # Needed for the deploy-pages action to authenticate
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0 # Needed by the Javadoc publisher action
-
-      - name: Publish Javadoc
-        uses: MathieuSoysal/Javadoc-publisher.yml@v3.0.2
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          java-version: 21
-          project: gradle
-          target-folder: javadoc
-          deploy-mode: artifact
-
-  deploy-pages:
-    needs: build-javadoc
-    runs-on: ubuntu-latest
-    permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: 21
+          distribution: adopt
+          cache: gradle
+
+      - name: Generate Javadoc
+        run: ./gradlew javadoc
+
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p _site/javadoc
+          cp -r build/docs/javadoc/. _site/javadoc/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
