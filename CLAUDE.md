@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project overview
+
+A Spring Boot application demonstrating Kafka **at-least-once delivery semantics** for `LanguagePreference` events (`customerId` + `Locale`). It pairs Kafka producer/consumer configuration (idempotent producer, manual offset commit) with Resilience4j circuit breakers and retries to show how the guarantee is maintained end-to-end under failure.
+
 ## Commands
 
 ```bash
@@ -14,14 +18,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Run a single test class
 ./gradlew test --tests "com.example.atleastonce.LanguagePreferenceProducerTest"
 
-# Format code (Google Java Format via Spotless)
-./gradlew spotlessApply
-
-# Check formatting without applying
-./gradlew spotlessCheck
-
-# OWASP dependency vulnerability check (fails build on CVSS ≥ 7)
-./gradlew dependencyCheckAnalyze
+./gradlew spotlessApply          # auto-format (Google Java Format)
+./gradlew spotlessCheck          # check formatting without applying
+./gradlew dependencyCheckAnalyze # OWASP CVE scan (fails build at CVSS ≥ 7)
 
 # Run the application (requires Kafka on localhost:9092)
 ./gradlew bootRun
@@ -33,8 +32,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 
 ## Architecture
-
-This is a Spring Boot 4 / Java 21 application demonstrating Kafka **at-least-once delivery semantics** for `LanguagePreference` events (`customerId` + `Locale`).
 
 ### Delivery guarantee layering
 
@@ -52,12 +49,16 @@ This is a Spring Boot 4 / Java 21 application demonstrating Kafka **at-least-onc
 
 **Observability**: Actuator exposes `health`, `info`, `prometheus`, `circuitbreakers`, and `retries`. Circuit breaker health is surfaced in `/actuator/health`.
 
-### Security patch pattern
-
-`gradle/libs.versions.toml` holds all transitive dependency pins as `patch-<cve-id>` entries under `[libraries]` and a `security-patches` bundle under `[bundles]`. `build.gradle` applies the bundle as `constraints { }` blocks. `settings.gradle` also pre-loads these onto the buildscript classpath. When adding a new CVE pin, follow this pattern and add it to both `[libraries]` and the `security-patches` bundle.
-
 ### Testing
 
 Tests use `@EmbeddedKafka` (no external broker needed). `@DirtiesContext` resets the application context between test classes. Add new tests in the same package under `src/test/`.
 
 CI runs against Java 17, 21, and 25 in parallel.
+
+## Code style
+
+Spotless enforces Google Java Format. Run `./gradlew spotlessApply` before committing. `module-info.java` is excluded from formatting.
+
+## Security patches
+
+Transitive CVE fixes go in `gradle/libs.versions.toml` as `patch-<cve-id>` library entries using `strictly`/`prefer` version constraints, collected in the `security-patches` bundle. `build.gradle` applies the bundle as `constraints { }` blocks; `settings.gradle` also pre-loads the patches onto the buildscript classpath. When adding a new CVE pin, add it to both `[libraries]` and the `security-patches` bundle. The OWASP dependency check plugin (`./gradlew dependencyCheckAnalyze`) fails the build at CVSS ≥ 7.
