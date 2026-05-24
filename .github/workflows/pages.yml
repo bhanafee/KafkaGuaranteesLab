@@ -43,15 +43,21 @@ jobs:
       - name: Convert Markdown to HTML
         run: |
           mkdir -p _site
+          cp .github/pandoc/theme.css _site/
+          cp .github/pandoc/skylighting-paper-theme.css _site/
           pandoc README.md \
-            --standalone \
+            --template .github/pandoc/template.html5 \
             --metadata title="AtLeastOnce" \
             --lua-filter .github/pandoc/mermaid.lua \
             --include-after-body .github/pandoc/mermaid-init.html \
+            --css theme.css \
+            --css skylighting-paper-theme.css \
             --output _site/index.html
           pandoc CODE_OF_CONDUCT.md \
-            --standalone \
+            --template .github/pandoc/template.html5 \
             --metadata title="Code of Conduct" \
+            --css theme.css \
+            --css skylighting-paper-theme.css \
             --output _site/CODE_OF_CONDUCT.html
 
       - name: Copy Javadoc
