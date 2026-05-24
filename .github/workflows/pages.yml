@@ -46,6 +46,8 @@ jobs:
           pandoc README.md \
             --standalone \
             --metadata title="AtLeastOnce" \
+            --lua-filter .github/pandoc/mermaid.lua \
+            --include-after-body .github/pandoc/mermaid-init.html \
             --output _site/index.html
 
       - name: Copy Javadoc
