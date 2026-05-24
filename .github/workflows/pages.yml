@@ -59,6 +59,12 @@ jobs:
             --css theme.css \
             --css skylighting-paper-theme.css \
             --output _site/CODE_OF_CONDUCT.html
+          pandoc CLAUDE.md \
+            --template .github/pandoc/template.html5 \
+            --metadata title="Claude Code guidance" \
+            --css theme.css \
+            --css skylighting-paper-theme.css \
+            --output _site/CLAUDE.html
 
       - name: Copy Javadoc
         run: |
