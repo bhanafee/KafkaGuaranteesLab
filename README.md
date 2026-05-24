@@ -7,3 +7,4 @@ configuration for reliable message delivery with `LanguagePreference` events.
 
 - [GitHub repository](https://github.com/bhanafee/AtLeastOnce)
 - [Javadoc](https://bhanafee.github.io/AtLeastOnce/javadoc/)
+- [License](https://bhanafee.github.io/AtLeastOnce/LICENSE)
