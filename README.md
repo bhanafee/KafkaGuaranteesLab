@@ -45,7 +45,7 @@ Each layer has a different remedy, and this demo shows all three.
 
 ## Requirements
 
-- Java 17 or higher (Java 21 toolchain used for compilation)
+- Java 17 or higher (Java 25 toolchain used for compilation)
 - Kafka broker on `localhost:9092` (or use the included `kafka-local.sh`)
 
 ## Running the Demo
