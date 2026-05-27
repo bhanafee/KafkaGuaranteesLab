@@ -4,14 +4,6 @@ A Spring Boot application demonstrating Kafka **at-least-once delivery semantics
 `LanguagePreference` events. It layers Kafka producer/consumer configuration with Resilience4j
 circuit breakers and retries to show how the guarantee is maintained end-to-end under failure.
 
-## Links
-
-- [GitHub repository](https://github.com/bhanafee/AtLeastOnce)
-- [Javadoc](https://bhanafee.github.io/AtLeastOnce/javadoc/)
-- [Apache 2.0 License](https://bhanafee.github.io/AtLeastOnce/LICENSE)
-- [Code of Conduct](https://bhanafee.github.io/AtLeastOnce/CODE_OF_CONDUCT.html)
-- [Claude Code guidance](https://bhanafee.github.io/AtLeastOnce/CLAUDE.html)
-
 ## The Problem
 
 Kafka does not guarantee at-least-once delivery out of the box. Three distinct failure modes can
@@ -225,3 +217,14 @@ Resilience4j retry inside `process()`.
 | Resilience4j | 2.4.0 |
 | Spring Kafka | (via Spring Boot) |
 | Micrometer/Prometheus | (via Spring Boot) |
+| JaCoCo | 0.8.14 |
+
+## Links
+
+- [GitHub repository](https://github.com/bhanafee/AtLeastOnce)
+- [Javadoc](https://bhanafee.github.io/AtLeastOnce/javadoc/)
+- [Test Results](https://bhanafee.github.io/AtLeastOnce/tests/)
+- [Coverage Report](https://bhanafee.github.io/AtLeastOnce/coverage/)
+- [Apache 2.0 License](https://bhanafee.github.io/AtLeastOnce/LICENSE)
+- [Code of Conduct](https://bhanafee.github.io/AtLeastOnce/CODE_OF_CONDUCT.html)
+- [Claude Code guidance](https://bhanafee.github.io/AtLeastOnce/CLAUDE.html)

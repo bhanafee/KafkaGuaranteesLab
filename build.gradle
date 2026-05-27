@@ -6,6 +6,7 @@ buildscript {
 
 plugins {
     id 'java'
+    id 'jacoco'
     alias(libs.plugins.spring.boot)
     alias(libs.plugins.spring.dep.mgmt)
     alias(libs.plugins.spotless)
@@ -52,6 +53,14 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+tasks.named('jacocoTestReport') {
+    dependsOn tasks.named('test')
+    reports {
+        html.required = true
+        xml.required = false
+    }
 }
 
 spotless {
