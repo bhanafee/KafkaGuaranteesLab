@@ -18,24 +18,34 @@
   --highlight-purple: #b4a7d6;
 
   /* Figure / diagram palette. Used by global CSS and read by the
-   * mermaid initializer so diagrams match the rest of the page. Fills
-   * are muted enough that body-colored text sits on them legibly;
-   * borders are a step darker for definition. */
+   * mermaid initializer so diagrams match the rest of the page. Five
+   * generic pairs for differentiated nodes (each is fill + border):
+   *   1 — vivid rose
+   *   2 — vivid coral
+   *   3 — neutral gray
+   *   4 — golden tan
+   *   5 — dusty mauve
+   * Plus an accent pair used by `:::accent` on a mermaid node, by
+   * the matching .mermaid edge rules, and by `<mark class="accent">`
+   * in prose, so a diagram and its discussion can share one hue. */
   --figure-bg: #ffffff;
   --figure-surface: #f5f2eb;
   --figure-text: #1b2733;
   --figure-line: #4a5566;
 
-  --figure-fill-1: #cfdcec;
-  --figure-border-1: #6b88a8;
-  --figure-fill-2: #d6e3cd;
-  --figure-border-2: #6f8a5f;
-  --figure-fill-3: #f0e3c4;
-  --figure-border-3: #b08a48;
-  --figure-fill-4: #eed4cd;
-  --figure-border-4: #b06a5e;
-  --figure-fill-5: #dcd1ec;
-  --figure-border-5: #7d6ba5;
+  --figure-fill-1: #facbd0;
+  --figure-border-1: #ce3d52;
+  --figure-fill-2: #fcd4bd;
+  --figure-border-2: #c76437;
+  --figure-fill-3: #d7d5d1;
+  --figure-border-3: #6d6359;
+  --figure-fill-4: #edcb94;
+  --figure-border-4: #94703b;
+  --figure-fill-5: #e0cfce;
+  --figure-border-5: #9a7e80;
+
+  --figure-accent-fill: #b5dae3;
+  --figure-accent-border: #2c7e8d;
 
   --color-inline-code: #1b2733;
   --color-inline-code-bg: #f3f3f8;
@@ -153,16 +163,19 @@
     --figure-text: #f7f5f2;
     --figure-line: #c4ccd6;
 
-    --figure-fill-1: #34526e;
-    --figure-border-1: #7ea1c3;
-    --figure-fill-2: #3c5340;
-    --figure-border-2: #8eb195;
-    --figure-fill-3: #6a5230;
-    --figure-border-3: #d2b170;
-    --figure-fill-4: #6a3f3a;
-    --figure-border-4: #ce8f82;
-    --figure-fill-5: #4a3a64;
-    --figure-border-5: #a596c8;
+    --figure-fill-1: #5f2c36;
+    --figure-border-1: #ec8b98;
+    --figure-fill-2: #5e331e;
+    --figure-border-2: #e59474;
+    --figure-fill-3: #2e2c2a;
+    --figure-border-3: #a39f9a;
+    --figure-fill-4: #4a371d;
+    --figure-border-4: #c29254;
+    --figure-fill-5: #443233;
+    --figure-border-5: #bca596;
+
+    --figure-accent-fill: #2c5868;
+    --figure-accent-border: #7ac4d2;
 
     --color-inline-code: #f7f5f2;
     --color-inline-code-bg: #242121;
@@ -550,6 +563,10 @@ span.mark.yellow, mark.yellow { background-color: var(--highlight-yellow); }
 span.mark.green,  mark.green  { background-color: var(--highlight-green);  }
 span.mark.blue,   mark.blue   { background-color: var(--highlight-blue);   }
 span.mark.purple, mark.purple { background-color: var(--highlight-purple); }
+/* Accent mark: shares hue with the figure accent so a marked phrase
+ * in prose visually points to a `:::accent` node (or accented edge)
+ * in the surrounding diagram. */
+span.mark.accent, mark.accent { background-color: var(--figure-accent-fill); }
 
 .subtitle {
   margin-top: 0;
@@ -925,6 +942,26 @@ figcaption {
 
 figcaption code {
   font-size: var(--figcaption-code-font-size);
+}
+
+/* }}} */
+/* ----- Mermaid ------------------------------------------------------- {{{ */
+/* Color knobs for mermaid diagrams are passed in by assets/mermaid-init.html
+ * from the --figure-* custom properties above; these rules layer on top
+ * of mermaid's own SVG output. */
+
+/* Accent a mermaid node by adding `:::accent` after its name in the
+ * diagram source. Mermaid emits the class on the node group; rules
+ * override the inline style attributes mermaid writes onto the shape
+ * elements, so the override needs !important. */
+.mermaid g.node.accent > rect,
+.mermaid g.node.accent > polygon,
+.mermaid g.node.accent > path,
+.mermaid g.node.accent > circle,
+.mermaid g.node.accent > ellipse {
+  fill: var(--figure-accent-fill) !important;
+  stroke: var(--figure-accent-border) !important;
+  stroke-width: 2px !important;
 }
 
 /* }}} */
