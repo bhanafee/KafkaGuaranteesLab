@@ -1,2 +1,43 @@
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-<script>mermaid.initialize({startOnLoad:true});</script>
+<script>
+  (function () {
+    var css = getComputedStyle(document.documentElement);
+    var v = function (name) { return css.getPropertyValue(name).trim(); };
+    var dark = window.matchMedia
+      && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var line = v('--figure-line');
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      darkMode: dark,
+      themeVariables: {
+        darkMode: dark,
+        fontFamily: v('--font-family-prose'),
+        background: v('--figure-bg'),
+        mainBkg: v('--figure-fill-1'),
+        primaryColor: v('--figure-fill-1'),
+        primaryBorderColor: v('--figure-border-1'),
+        primaryTextColor: v('--figure-text'),
+        secondaryColor: v('--figure-fill-2'),
+        secondaryBorderColor: v('--figure-border-2'),
+        secondaryTextColor: v('--figure-text'),
+        tertiaryColor: v('--figure-fill-3'),
+        tertiaryBorderColor: v('--figure-border-3'),
+        tertiaryTextColor: v('--figure-text'),
+        lineColor: line,
+        defaultLinkColor: line,
+        arrowheadColor: line,
+        textColor: v('--figure-text'),
+        nodeTextColor: v('--figure-text'),
+        edgeLabelBackground: v('--figure-bg'),
+        labelBackground: v('--figure-bg'),
+        labelTextColor: v('--figure-text'),
+        noteBkgColor: v('--figure-fill-3'),
+        noteBorderColor: v('--figure-border-3'),
+        noteTextColor: v('--figure-text'),
+        clusterBkg: v('--figure-surface'),
+        clusterBorder: v('--figure-border-1')
+      }
+    });
+  })();
+</script>
