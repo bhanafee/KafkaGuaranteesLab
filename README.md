@@ -1,16 +1,38 @@
 # AtLeastOnce
 
-A Spring Boot application demonstrating Kafka **at-least-once delivery semantics** for
-`LanguagePreference` events. It layers Kafka producer/consumer configuration with Resilience4j
-circuit breakers and retries to show how the guarantee is maintained end-to-end under failure.
+A Spring Boot application demonstrating **at-least-once delivery semantics** using Kafka. It layers
+producer/consumer configuration with Resilience4j circuit breakers and retries to show how the guarantee
+is maintained end-to-end under failure. Kafka itself is configured for exactly once delivery using an
+idempotency key. The demo shows how this can greatly reduce the number of duplicate messages, but cannot
+eliminate them entirely without risking data loss.
 
 ## The Problem
 
-Kafka does not guarantee at-least-once delivery out of the box. Three distinct failure modes can
-cause silent message loss:
+Kafka provides strong delivery guarantees for applications that follow the API contract. Under most conditions,
+every message is processed exactly once by both producer and consumer. However, developers need to be aware of
+the boundaries and plan for failures. This demo shows how to handle common failure modes.
 
-1. **Producer acknowledgement failure**: the broker does not confirm receipt and the producer does
-   not retry.
+### A Quick Peek Under the Covers
+
+To understand where things can go awry, it's helpful to understand what happens when things go right. There are
+three common delivery guarantees for messages:
+
+* *At-most-once* guarantees that a message is delivered either once or not at all. Conceptually, the easiest way to
+  ensure this is to try to send the message one time and never retry.
+* *At-least-once* guarantees that a message is delivered at least once, but maybe more. Conceptually, the
+  easiest way to ensure this is to send the message and retry until it is acknowledged.
+* *Exactly-once* guarantees that a message is delivered once and no more. Conceptually, this is the same 
+  as simultaneously guaranteeing both at-least-once *and* at-most-once.
+
+Obviously, you can't get exactly-once by using the easy approaches to at-most-once and at-least-once at the same time.
+What you can do instead is use retries as needed to ensure at least once delivery, then filter duplicates. Duplicates
+can happen when the sender retries while the receiver is down, or when the receiver is slow to process
+messages. That's what Kafka does when `enable.idempotence=true` is set. Each new message is assigned a unique identifier
+consisting of a process id and a sequence number, and duplicates are filtered out by the broker.
+
+### Common Failure Modes
+
+1. **Producer acknowledgement failure**: when an application sends a message, but the broker does not confirm receipt.
 2. **Offset commit before processing**: auto-commit advances the offset before `process()` finishes,
    so a crash between the commit and the work silently drops the message.
 3. **Application-level failure without fallback**: an exception thrown inside the listener that is
@@ -206,6 +228,29 @@ Both instances: 3 attempts, 1 s fixed wait, retries on any `Exception`.
 `FixedBackOff(1 s, 2 attempts)` — up to 2 delivery retries before the message is routed to the
 dead-letter topic. This operates at the Kafka listener container layer, independently of the
 Resilience4j retry inside `process()`.
+
+## Layout
+
+```mermaid
+treeView-beta
+    "kafka-local.sh"
+    "src"
+        "resources"
+            "application.yml"
+        "java"
+            "..."
+                "AtLeastOnceApplication.java"
+                "config"
+                    "KafkaConfig.java"
+                "consumer"
+                    "LanguagePreferenceConsumer.java"
+                "producer"
+                    "LanguagePreferenceProducer.java"
+                    "LanguagePreferenceController.java"
+                "model"
+                    "LanguagePreference.java"
+```
+
 
 ## Technologies
 
