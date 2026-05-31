@@ -1,10 +1,10 @@
 # KafkaGuaranteesLab
 
-A Spring Boot application demonstrating **at-least-once delivery semantics** using Kafka. It layers
-producer/consumer configuration with Resilience4j circuit breakers and retries to show how the guarantee
-is maintained end-to-end under failure. Kafka itself is configured for exactly once delivery using an
-idempotency key. The demo shows how this can greatly reduce the number of duplicate messages, but cannot
-eliminate them entirely without risking data loss.
+A Spring Boot application demonstrating the limitations of Kafka guarantees. It layers producer/consumer
+configuration with Resilience4j circuit breakers and retries to show how the guarantee is maintained end-to-end
+under failure. Kafka itself is configured for exactly once delivery using an idempotency key. The demo shows
+how this can greatly reduce the number of duplicate messages, but cannot eliminate them entirely without
+risking data loss.
 
 ## The Problem
 
