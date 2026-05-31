@@ -66,7 +66,8 @@ public class KafkaConfig {
     // Disable auto-commit for manual acknowledgment (at-least-once)
     props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
     props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-    props.put(JacksonJsonDeserializer.TRUSTED_PACKAGES, "com.maybeitssquid.kafkaguaranteeslab.model");
+    props.put(
+        JacksonJsonDeserializer.TRUSTED_PACKAGES, "com.maybeitssquid.kafkaguaranteeslab.model");
     return new DefaultKafkaConsumerFactory<>(props);
   }
 
