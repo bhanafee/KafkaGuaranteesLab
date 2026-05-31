@@ -8,9 +8,9 @@ risking data loss.
 
 ## The Problem
 
-Kafka provides strong delivery guarantees for applications that follow the API contract. Under most conditions,
-every message is processed exactly once by both producer and consumer. However, developers need to be aware of
-the boundaries and plan for failures. This demo shows how to handle common failure modes.
+Kafka provides strong delivery and ordering guarantees for applications that follow the API contract. Under most
+conditions, every message is processed exactly once and in the same order by both producer and consumer. However,
+developers need to be aware of the boundaries and plan for failures. This demo shows how to handle common failure modes.
 
 ### A Quick Peek Under the Covers
 
@@ -27,8 +27,9 @@ three common delivery guarantees for messages:
 Obviously, you can't get exactly-once by using the easy approaches to at-most-once and at-least-once at the same time.
 What you can do instead is use retries as needed to ensure at least once delivery, then filter duplicates. Duplicates
 can happen when the sender retries while the receiver is down, or when the receiver is slow to process
-messages. That's what Kafka does when `enable.idempotence=true` is set. Each new message is assigned a unique identifier
-consisting of a process id and a sequence number, and duplicates are filtered out by the broker.
+messages. That's what Kafka does when `enable.idempotence=true` is set. Each producer session is
+assigned a unique producer ID, and each message a sequence number; the broker uses these to filter out
+duplicates. `transactional.id` extends this to cover producer restarts and atomic consume+produce pairs.
 
 ### Common Failure Modes
 
@@ -36,10 +37,44 @@ consisting of a process id and a sequence number, and duplicates are filtered ou
 2. **Offset commit before processing**: auto-commit advances the offset before `process()` finishes,
    so a crash between the commit and the work silently drops the message.
 3. **Application-level failure without fallback**: an exception thrown inside the listener that is
-   not caught or retried at the framework level leaves the message neither processed nor
-   dead-lettered.
+   not caught by a bounded retry with a dead-letter exit will either retry indefinitely or be
+   silently dropped when retries are exhausted, with no record of the failure.
 
 Each layer has a different remedy, and this demo shows all three.
+
+### Limits of the Idempotent Producer
+
+The idempotent producer eliminates duplicates from Kafka's own internal retry loop, but only within a
+single producer session. That is a narrower guarantee than it sounds.
+
+**Producer-side gaps**
+
+* **Producer process restart.** On restart the broker issues a new PID. Any message delivered before the
+  crash but un-acked (network loss, timeout) will be re-sent under the new PID — the broker has no way
+  to recognise it as a duplicate. Idempotence is per-session, not durable across process lifetimes.
+* **Application-layer retry calling `send()` again.** If your code (or a Resilience4j `@Retry`) calls
+  `send()` a second time because the future timed out, that is a brand-new Kafka message with a new
+  sequence number. The broker sees two distinct messages and stores both. This is exactly what
+  `LanguagePreferenceProducer` does — the `@Retry` wraps the whole `send()` call, so a retry after a
+  dropped ack produces a duplicate.
+* **Multiple producer instances sharing the same logical role.** Two JVMs publishing the same event (for
+  example after a failover) have different PIDs; the broker deduplicates per-PID, so it stores both.
+
+**Consumer-side gaps (outside the idempotent producer's scope entirely)**
+
+* **Offset committed before processing completes.** Auto-commit or an early `ack.acknowledge()` advances
+  the offset; a crash before the work finishes silently drops the message. The mirror failure — committing
+  too late — causes redelivery after a crash. The idempotent producer addresses neither case.
+* **Consumer group rebalance mid-processing.** A partition is reassigned while a message is in-flight
+  through `process()`. The new owner starts from the last committed offset and redelivers the same message.
+
+**What `transactional.id` adds**
+
+`transactional.id` gives the producer a stable identity that survives restarts. The broker increments a producer
+epoch on each reconnect, fencing any zombie instances still running with the old epoch. Combined with the
+transactional API, it lets you atomically commit a consume+produce pair as a single unit. Without it, the
+idempotent producer only eliminates duplicates from Kafka's own internal retry loop. Everything above that
+layer still requires application-level deduplication.
 
 ## What This Demo Shows
 
