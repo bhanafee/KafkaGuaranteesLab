@@ -2,7 +2,7 @@ spring:
   kafka:
     bootstrap-servers: localhost:9092
     consumer:
-      group-id: at-least-once-group
+      group-id: kafka-guarantees-lab-group
       retry:
         interval-ms: 1000
         max-attempts: 2

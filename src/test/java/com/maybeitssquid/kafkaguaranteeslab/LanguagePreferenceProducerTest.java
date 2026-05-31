@@ -1,9 +1,9 @@
-package com.example.atleastonce;
+package com.maybeitssquid.kafkaguaranteeslab;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.atleastonce.model.LanguagePreference;
-import com.example.atleastonce.producer.LanguagePreferenceProducer;
+import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
+import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;

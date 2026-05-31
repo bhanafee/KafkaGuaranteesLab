@@ -1,6 +1,6 @@
-package com.example.atleastonce.producer;
+package com.maybeitssquid.kafkaguaranteeslab.producer;
 
-import com.example.atleastonce.model.LanguagePreference;
+import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;

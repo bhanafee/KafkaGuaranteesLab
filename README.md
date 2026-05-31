@@ -1,4 +1,4 @@
-# AtLeastOnce
+# KafkaGuaranteesLab
 
 A Spring Boot application demonstrating **at-least-once delivery semantics** using Kafka. It layers
 producer/consumer configuration with Resilience4j circuit breakers and retries to show how the guarantee
@@ -266,10 +266,10 @@ treeView-beta
 
 ## Links
 
-- [GitHub repository](https://github.com/bhanafee/AtLeastOnce)
-- [Javadoc](https://bhanafee.github.io/AtLeastOnce/javadoc/)
-- [Test Results](https://bhanafee.github.io/AtLeastOnce/tests/)
-- [Coverage Report](https://bhanafee.github.io/AtLeastOnce/coverage/)
-- [Apache 2.0 License](https://bhanafee.github.io/AtLeastOnce/LICENSE)
-- [Code of Conduct](https://bhanafee.github.io/AtLeastOnce/CODE_OF_CONDUCT.html)
-- [Claude Code guidance](https://bhanafee.github.io/AtLeastOnce/CLAUDE.html)
+- [GitHub repository](https://github.com/bhanafee/KafkaGuaranteesLab)
+- [Javadoc](https://bhanafee.github.io/KafkaGuaranteesLab/javadoc/)
+- [Test Results](https://bhanafee.github.io/KafkaGuaranteesLab/tests/)
+- [Coverage Report](https://bhanafee.github.io/KafkaGuaranteesLab/coverage/)
+- [Apache 2.0 License](https://bhanafee.github.io/KafkaGuaranteesLab/LICENSE)
+- [Code of Conduct](https://bhanafee.github.io/KafkaGuaranteesLab/CODE_OF_CONDUCT.html)
+- [Claude Code guidance](https://bhanafee.github.io/KafkaGuaranteesLab/CLAUDE.html)

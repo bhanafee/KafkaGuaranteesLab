@@ -47,7 +47,7 @@ jobs:
           cp .github/pandoc/skylighting-paper-theme.css _site/
           pandoc README.md \
             --template .github/pandoc/template.html5 \
-            --metadata title="AtLeastOnce" \
+            --metadata title="KafkaGuaranteesLab" \
             --lua-filter .github/pandoc/mermaid.lua \
             --include-after-body .github/pandoc/mermaid-init.html \
             --css theme.css \

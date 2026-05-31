@@ -16,7 +16,7 @@ A Spring Boot application demonstrating Kafka **at-least-once delivery semantics
 ./gradlew test
 
 # Run a single test class
-./gradlew test --tests "com.example.atleastonce.LanguagePreferenceProducerTest"
+./gradlew test --tests "com.maybeitssquid.kafkaguaranteeslab.LanguagePreferenceProducerTest"
 
 ./gradlew spotlessApply          # auto-format (Google Java Format)
 ./gradlew spotlessCheck          # check formatting without applying

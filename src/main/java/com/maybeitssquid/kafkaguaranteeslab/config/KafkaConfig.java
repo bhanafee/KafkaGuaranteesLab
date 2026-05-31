@@ -1,6 +1,6 @@
-package com.example.atleastonce.config;
+package com.maybeitssquid.kafkaguaranteeslab.config;
 
-import com.example.atleastonce.model.LanguagePreference;
+import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -66,7 +66,7 @@ public class KafkaConfig {
     // Disable auto-commit for manual acknowledgment (at-least-once)
     props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
     props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-    props.put(JacksonJsonDeserializer.TRUSTED_PACKAGES, "com.example.atleastonce.model");
+    props.put(JacksonJsonDeserializer.TRUSTED_PACKAGES, "com.maybeitssquid.kafkaguaranteeslab.model");
     return new DefaultKafkaConsumerFactory<>(props);
   }
 

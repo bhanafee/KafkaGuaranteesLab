@@ -1,6 +1,6 @@
-package com.example.atleastonce.consumer;
+package com.maybeitssquid.kafkaguaranteeslab.consumer;
 
-import com.example.atleastonce.model.LanguagePreference;
+import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.apache.kafka.clients.consumer.ConsumerRecord;

@@ -1,4 +1,4 @@
-package com.example.atleastonce.model;
+package com.maybeitssquid.kafkaguaranteeslab.model;
 
 import java.util.Locale;
 
