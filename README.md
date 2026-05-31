@@ -239,7 +239,7 @@ treeView-beta
             "application.yml"
         "java"
             "..."
-                "AtLeastOnceApplication.java"
+                "KafkaGuaranteesLabApplication.java"
                 "config"
                     "KafkaConfig.java"
                 "consumer"
