@@ -25,26 +25,24 @@ resilience4j-test        = { module = "io.github.resilience4j:resilience4j-test"
 micrometer-prometheus    = { module = "io.micrometer:micrometer-registry-prometheus" }
 
 # Security patches - BouncyCastle (CVE-2026-5598 covers all prior bcprov/bcpg CVEs)
-patch-cve-2026-5598-bcpg   = { module = "org.bouncycastle:bcpg-jdk18on",                    version = { strictly = "[1.84,)", prefer = "1.84" } }
-patch-cve-2026-5598-bcprov = { module = "org.bouncycastle:bcprov-jdk18on",                  version = { strictly = "[1.84,)", prefer = "1.84" } }
+patch-cve-2026-5598-bcpg = { module = "org.bouncycastle:bcpg-jdk18on", version = { strictly = "[1.84,)", prefer = "1.84" } }
+patch-cve-2026-5598-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version = { strictly = "[1.84,)", prefer = "1.84" } }
 
 # Security patches - Apache Commons
-patch-cve-2025-48734 = { module = "commons-beanutils:commons-beanutils",                    version = { strictly = "[1.11.0,)", prefer = "1.11.0" } }
-patch-cve-2025-48924 = { module = "org.apache.commons:commons-lang3",                       version = { strictly = "[3.18.0,)", prefer = "3.18.0" } }
+patch-cve-2025-48734 = { module = "commons-beanutils:commons-beanutils", version = { strictly = "[1.11.0,)", prefer = "1.11.0" } }
+patch-cve-2025-48924 = { module = "org.apache.commons:commons-lang3", version = { strictly = "[3.18.0,)", prefer = "3.18.0" } }
 
 # Security patches - Apache Tomcat (CVE-2026-43512: digest auth bypass; all three embed artifacts must match)
-patch-cve-2026-43512-core  = { module = "org.apache.tomcat.embed:tomcat-embed-core",        version = { strictly = "[11.0.22,)", prefer = "11.0.22" } }
-patch-cve-2026-43512-el    = { module = "org.apache.tomcat.embed:tomcat-embed-el",          version = { strictly = "[11.0.22,)", prefer = "11.0.22" } }
-patch-cve-2026-43512-ws    = { module = "org.apache.tomcat.embed:tomcat-embed-websocket",   version = { strictly = "[11.0.22,)", prefer = "11.0.22" } }
+patch-cve-2026-43512-core = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.22,)", prefer = "11.0.22" } }
+patch-cve-2026-43512-el = { module = "org.apache.tomcat.embed:tomcat-embed-el", version = { strictly = "[11.0.22,)", prefer = "11.0.22" } }
+patch-cve-2026-43512-ws = { module = "org.apache.tomcat.embed:tomcat-embed-websocket", version = { strictly = "[11.0.22,)", prefer = "11.0.22" } }
 
 # Security patches - Spring Kafka (CVE-2026-41731 deserialization; also covers CVE-2026-41726 unbounded delegate cache)
-patch-cve-2026-41731       = { module = "org.springframework.kafka:spring-kafka",            version = { strictly = "[4.0.6,)", prefer = "4.0.6" } }
+patch-cve-2026-41731 = { module = "org.springframework.kafka:spring-kafka", version = { strictly = "[4.0.6,)", prefer = "4.0.6" } }
 
 # Security patches - Other
-patch-cve-2022-45868       = { module = "com.h2database:h2",                                version = { strictly = "[2.2.220,)", prefer = "2.2.220" } }
-patch-cve-2025-4949        = { module = "org.eclipse.jgit:org.eclipse.jgit",               version = { strictly = "[6.10.1.202505221210-r,)", prefer = "6.10.1.202505221210-r" } }
-# jackson patches use canonical single-space formatting: the settings.gradle buildscript injector
-# regex only matches "patch-... = { module = ..." with single spaces, not the column padding above.
+patch-cve-2022-45868 = { module = "com.h2database:h2", version = { strictly = "[2.2.220,)", prefer = "2.2.220" } }
+patch-cve-2025-4949 = { module = "org.eclipse.jgit:org.eclipse.jgit", version = { strictly = "[6.10.1.202505221210-r,)", prefer = "6.10.1.202505221210-r" } }
 # jackson 2.22.0: core fixes GHSA-72hv-8253-57qq; databind fixes GHSA-5jmj-h7xm-6q6v plus the
 # 2.21.4 advisories (5hh8, 9fxm, hgj6, rmj7, j3rv, rcqc). 2.21.5 was never published; core/databind
 # kept aligned across the 2.21/2.22 boundary.
