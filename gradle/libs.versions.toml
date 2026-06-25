@@ -43,10 +43,20 @@ patch-cve-2026-41731       = { module = "org.springframework.kafka:spring-kafka"
 # Security patches - Other
 patch-cve-2022-45868       = { module = "com.h2database:h2",                                version = { strictly = "[2.2.220,)", prefer = "2.2.220" } }
 patch-cve-2025-4949        = { module = "org.eclipse.jgit:org.eclipse.jgit",               version = { strictly = "[6.10.1.202505221210-r,)", prefer = "6.10.1.202505221210-r" } }
-patch-ghsa-72hv-8253-57qq  = { module = "com.fasterxml.jackson.core:jackson-core",          version = { strictly = "[2.21.1,)", prefer = "2.21.1" } }
+# jackson patches use canonical single-space formatting: the settings.gradle buildscript injector
+# regex only matches "patch-... = { module = ..." with single spaces, not the column padding above.
+# jackson 2.22.0: core fixes GHSA-72hv-8253-57qq; databind fixes GHSA-5jmj-h7xm-6q6v plus the
+# 2.21.4 advisories (5hh8, 9fxm, hgj6, rmj7, j3rv, rcqc). 2.21.5 was never published; core/databind
+# kept aligned across the 2.21/2.22 boundary.
+patch-ghsa-72hv-8253-57qq = { module = "com.fasterxml.jackson.core:jackson-core", version = { strictly = "[2.22.0,)", prefer = "2.22.0" } }
+patch-ghsa-5jmj-h7xm-6q6v = { module = "com.fasterxml.jackson.core:jackson-databind", version = { strictly = "[2.22.0,)", prefer = "2.22.0" } }
+# jackson 3.x (tools.jackson coordinates): databind 3.1.4 fixes the same advisory cluster on the
+# 3.0/3.1 line; core pinned to match for alignment.
+patch-tools-jackson-core = { module = "tools.jackson.core:jackson-core", version = { strictly = "[3.1.4,)", prefer = "3.1.4" } }
+patch-tools-jackson-databind = { module = "tools.jackson.core:jackson-databind", version = { strictly = "[3.1.4,)", prefer = "3.1.4" } }
 
 [bundles]
-security-patches = ["patch-cve-2022-45868", "patch-cve-2025-4949", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-5598-bcpg", "patch-cve-2026-5598-bcprov", "patch-ghsa-72hv-8253-57qq"]
+security-patches = ["patch-cve-2022-45868", "patch-cve-2025-4949", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-5598-bcpg", "patch-cve-2026-5598-bcprov", "patch-ghsa-72hv-8253-57qq", "patch-ghsa-5jmj-h7xm-6q6v", "patch-tools-jackson-core", "patch-tools-jackson-databind"]
 
 [plugins]
 spring-boot     = { id = "org.springframework.boot",        version.ref = "spring-boot" }
