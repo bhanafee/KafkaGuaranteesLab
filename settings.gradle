@@ -6,7 +6,15 @@ gradle.beforeProject { proj ->
         tomlFile.eachLine { line ->
             def matcher = line =~ /^patch-[a-z0-9-]+ = \{ module = "([^"]+)", version = \{ strictly = "[^"]+", prefer = "([^"]+)"/
             if (matcher) {
-                proj.buildscript.dependencies.add('classpath', "${matcher[0][1]}:${matcher[0][2]}")
+                def module = matcher[0][1]
+                def patchVersion = matcher[0][2]
+                // Constraint, not a dependency: forces the patched floor only when the module is
+                // already on the buildscript classpath; never adds new deps (app-only patches such
+                // as spring-kafka/tomcat apply as implementation constraints in build.gradle instead).
+                proj.buildscript.dependencies.constraints.add('classpath', module) {
+                    version { require "[${patchVersion},)"; prefer patchVersion }
+                    because 'transitive security patch'
+                }
             }
         }
     }
