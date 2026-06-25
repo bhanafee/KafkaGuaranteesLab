@@ -924,6 +924,16 @@ img {
   display: block;
 }
 
+/* Status badges (shields.io etc.) keep their intrinsic size and flow inline,
+   instead of inheriting the full-column `width: 100%` used for content images. */
+img[src*="img.shields.io"],
+img[src*="badge"] {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  display: inline-block;
+}
+
 .wide img {
   /* Put this in front of the table of contents */
   transform: translateZ(0px);
