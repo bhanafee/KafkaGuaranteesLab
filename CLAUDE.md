@@ -31,6 +31,8 @@ A Spring Boot application demonstrating Kafka **at-least-once delivery semantics
 ./kafka-local.sh status
 ```
 
+On Windows, use `gradlew.bat` (or `.\gradlew` in PowerShell); `kafka-local.sh` requires a POSIX shell (Git Bash/WSL).
+
 ## Architecture
 
 ### Delivery guarantee layering
@@ -53,7 +55,7 @@ A Spring Boot application demonstrating Kafka **at-least-once delivery semantics
 
 Tests use `@EmbeddedKafka` (no external broker needed). `@DirtiesContext` resets the application context between test classes. Add new tests in the same package under `src/test/`.
 
-CI runs against Java 17, 21, and 25 in parallel.
+The build uses a Java 25 toolchain and compiles to Java 17 bytecode (`release = "17"`). CI runs against Java 17, 21, and 25 in parallel.
 
 ## Code style
 
