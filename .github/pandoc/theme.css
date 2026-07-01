@@ -129,13 +129,13 @@
 
   /* --- Layout --- */
 
-  --main-width: 745px;
+  --main-width: 880px;
   /* The name doesn't indicate it, but this variable actually specifies an
    * effective minimum width. (It didn't previously behave this way, but the
    * change to do so was made in a backwards-compatible way, so the variable
    * was not renamed.)
    **/
-  --main-width-narrow: 550px;
+  --main-width-narrow: 680px;
   --side-note-max-width: 300px;
 
 }
@@ -338,7 +338,7 @@ label.sidenote-number {
 /* Unfortunately, variables aren't in scope here.
  * See calculations in Horizontal layouting.
  */
-@media screen and (max-width: calc(26px + 550px + 26px + 169px + 26px - 1px)) {
+@media screen and (max-width: calc(26px + 680px + 26px + 169px + 26px - 1px)) {
   .margin-toggle:checked + .sidenote,
   .margin-toggle:checked + .marginnote {
     margin-top: var(--side-note-line-height);
@@ -1107,11 +1107,11 @@ nav#TOC > input:checked + ul {
 }
 
 /* Unfortunately, variables aren't in scope here.
- * 745px = --main-width
+ * 880px = --main-width
  * 52px = 2 * --line-height
  * 206px = side note min width
  */
-@media screen and (min-width: calc(745px + 2 * (52px + 206px + 52px) - 1px)) {
+@media screen and (min-width: calc(880px + 2 * (52px + 206px + 52px) - 1px)) {
   header {
     margin-bottom: var(--line-height);
   }
@@ -1195,11 +1195,11 @@ nav#TOC > input:checked + ul {
 /* --- Side notes and table of contents always visible --- {{{ */
 
 /* Unfortunately, variables aren't in scope here.
- * 745px = --main-width
+ * 880px = --main-width
  * 52px = 2 * --line-height
  * 206px = side note min width
  */
-@media screen and (min-width: calc(745px + 2 * (52px + 206px + 52px))) {
+@media screen and (min-width: calc(880px + 2 * (52px + 206px + 52px))) {
   header,
   main,
   footer {
@@ -1254,11 +1254,11 @@ nav#TOC > input:checked + ul {
 /* --- Side notes visibile, table of contents collapsed, double-wide margins --- {{{ */
 
 /* Unfortunately, variables aren't in scope here.
- * 745px = --main-width
+ * 880px = --main-width
  * 52px = 2 * --line-height
  * 206px = side note min width
  */
-@media screen and (min-width: calc(52px + 745px + 52px + 206px + 52px)) and (max-width: calc(745px + 2 * (52px + 206px + 52px) - 1px)) {
+@media screen and (min-width: calc(52px + 880px + 52px + 206px + 52px)) and (max-width: calc(880px + 2 * (52px + 206px + 52px) - 1px)) {
   header,
   nav#TOC,
   main,
@@ -1320,11 +1320,11 @@ nav#TOC > input:checked + ul {
 /* --- Side notes visibile, table of contents collapsed --- {{{ */
 
 /* Unfortunately, variables aren't in scope here.
- * 550px = --main-width-narrow
+ * 680px = --main-width-narrow
  * 26px = --line-height
  * 169px = side note min width narrow
  */
-@media screen and (min-width: calc(26px + 550px + 26px + 169px + 26px)) and (max-width: calc(52px + 745px + 52px + 206px + 52px - 1px)) {
+@media screen and (min-width: calc(26px + 680px + 26px + 169px + 26px)) and (max-width: calc(52px + 880px + 52px + 206px + 52px - 1px)) {
   header,
   nav#TOC,
   main,
@@ -1375,7 +1375,7 @@ nav#TOC > input:checked + ul {
 /* Unfortunately, variables aren't in scope here.
  * See calculations above.
  */
-@media screen and (max-width: calc(26px + 550px + 26px + 169px + 26px - 1px)) {
+@media screen and (max-width: calc(26px + 680px + 26px + 169px + 26px - 1px)) {
   header,
   nav#TOC,
   main,
