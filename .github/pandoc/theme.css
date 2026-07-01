@@ -10,6 +10,8 @@
   --color-text: #1b2733;
   --color-text-secondary: #637282;
   --color-link: #0070e0;
+  --color-accent: #b0542f;
+  --accent-soft: #f4ede7;
   --color-sidenote: #616970;
 
   --highlight-red: #ea9999;
@@ -87,7 +89,7 @@
   --title-font-size: 42px;
   --title-code-font-size: 40px;
   --title-line-height: 48px;
-  --title-margin-top: 92px;
+  --title-margin-top: 56px;
 
   --h1-font-size: 32px;
   --h1-code-font-size: 29px;
@@ -147,6 +149,8 @@
     --color-text: #f7f5f2;
     --color-text-secondary: #9d9b99;
     --color-link: #2994ff;
+    --color-accent: #e0895f;
+    --accent-soft: #2a211c;
     --color-sidenote: #b4b2af;
 
     --highlight-red: #660000;
@@ -376,6 +380,22 @@ h1.title {
   margin-bottom: var(--line-height);
   font-size: var(--title-font-size);
   line-height: var(--title-line-height);
+  letter-spacing: -0.015em;
+  position: relative;
+  padding-bottom: 12px;
+}
+
+/* A short accent tick under every title — one small, consistent signature
+ * that reads as "authored" without being tied to any one site's brand. */
+h1.title::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 44px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-accent);
 }
 
 h1.title code {
@@ -520,11 +540,19 @@ ul ul ul ul ul ul ul       { list-style-type: disc; }
 ul ul ul ul ul ul ul ul    { list-style-type: circle; }
 ul ul ul ul ul ul ul ul ul { list-style-type: square; }
 
-blockquote {
-  border-left: 1px solid var(--color-text-secondary);
-  padding-left: 1.5rem;
+blockquote:not(.metadata) {
+  border-left: 3px solid var(--color-accent);
+  background: var(--accent-soft);
+  padding: calc(0.5 * var(--line-height)) 1.25rem;
+  border-radius: 0 4px 4px 0;
+}
 
-  font-style: italic;
+blockquote:not(.metadata) > :last-child {
+  margin-bottom: 0;
+}
+
+blockquote:not(.metadata) strong {
+  color: var(--color-accent);
 }
 
 blockquote > p {
