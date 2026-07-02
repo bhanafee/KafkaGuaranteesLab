@@ -48,6 +48,7 @@ jobs:
           pandoc README.md \
             --template .github/pandoc/template.html5 \
             --metadata title="KafkaGuaranteesLab" \
+            --lua-filter .github/pandoc/strip-title.lua \
             --lua-filter .github/pandoc/mermaid.lua \
             --include-after-body .github/pandoc/mermaid-init.html \
             --css theme.css \
@@ -56,12 +57,14 @@ jobs:
           pandoc CODE_OF_CONDUCT.md \
             --template .github/pandoc/template.html5 \
             --metadata title="Code of Conduct" \
+            --lua-filter .github/pandoc/strip-title.lua \
             --css theme.css \
             --css skylighting-paper-theme.css \
             --output _site/CODE_OF_CONDUCT.html
           pandoc CLAUDE.md \
             --template .github/pandoc/template.html5 \
             --metadata title="Claude Code guidance" \
+            --lua-filter .github/pandoc/strip-title.lua \
             --css theme.css \
             --css skylighting-paper-theme.css \
             --output _site/CLAUDE.html
