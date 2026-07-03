@@ -328,7 +328,7 @@ treeView-beta
 | Component | Version |
 |-----------|---------|
 | Java | 25 (toolchain; runs on 17+) |
-| Gradle | 9.5.1 |
+| Gradle | 9.6.1 |
 | Spring Boot | 4.0.6 |
 | Resilience4j | 2.4.0 |
 | Spring Kafka | (via Spring Boot) |
