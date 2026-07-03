@@ -46,6 +46,9 @@ patch-cve-2025-4949 = { module = "org.eclipse.jgit:org.eclipse.jgit", version = 
 # jackson 2.22.0: core fixes GHSA-72hv-8253-57qq; databind fixes GHSA-5jmj-h7xm-6q6v plus the
 # 2.21.4 advisories (5hh8, 9fxm, hgj6, rmj7, j3rv, rcqc). 2.21.5 was never published; core/databind
 # kept aligned across the 2.21/2.22 boundary.
+# GHSA-5jmj-h7xm-6q6v was later expanded to cover a regression *in* 2.22.0 itself
+# (CVE-2026-54515, GitHub alert #24); fix targeted at 2.22.1, not yet published to Maven
+# Central as of 2026-07-02. Bump databind (and core, for alignment) to 2.22.1+ once it ships.
 patch-ghsa-72hv-8253-57qq = { module = "com.fasterxml.jackson.core:jackson-core", version = { strictly = "[2.22.0,)", prefer = "2.22.0" } }
 patch-ghsa-5jmj-h7xm-6q6v = { module = "com.fasterxml.jackson.core:jackson-databind", version = { strictly = "[2.22.0,)", prefer = "2.22.0" } }
 # jackson 3.x (tools.jackson coordinates): databind 3.1.4 fixes the same advisory cluster on the
