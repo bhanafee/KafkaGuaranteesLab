@@ -32,7 +32,6 @@ jobs:
         with:
           java-version: 21
           distribution: temurin
-          cache: gradle
 
       - name: Run tests and generate reports
         run: ./gradlew test jacocoTestReport javadoc
