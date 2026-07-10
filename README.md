@@ -1,7 +1,5 @@
 # KafkaGuaranteesLab
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-
 A Spring Boot application demonstrating the limitations of Kafka guarantees. It layers producer/consumer
 configuration with Resilience4j circuit breakers and retries to show how the guarantee is maintained end-to-end
 under failure. Kafka itself is configured for its strongest guarantee — an idempotent producer with `acks=all` —
@@ -341,6 +339,9 @@ treeView-beta
 - [Javadoc](https://bhanafee.github.io/KafkaGuaranteesLab/javadoc/)
 - [Test Results](https://bhanafee.github.io/KafkaGuaranteesLab/tests/)
 - [Coverage Report](https://bhanafee.github.io/KafkaGuaranteesLab/coverage/)
-- [Apache 2.0 License](https://bhanafee.github.io/KafkaGuaranteesLab/LICENSE)
 - [Code of Conduct](https://bhanafee.github.io/KafkaGuaranteesLab/CODE_OF_CONDUCT.html)
 - [Claude Code guidance](https://bhanafee.github.io/KafkaGuaranteesLab/CLAUDE.html)
+
+---
+
+**License:** [![Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
