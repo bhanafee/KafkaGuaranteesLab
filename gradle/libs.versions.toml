@@ -43,14 +43,10 @@ patch-cve-2026-41731 = { module = "org.springframework.kafka:spring-kafka", vers
 # Security patches - Other
 patch-cve-2022-45868 = { module = "com.h2database:h2", version = { strictly = "[2.2.220,)", prefer = "2.2.220" } }
 patch-cve-2025-4949 = { module = "org.eclipse.jgit:org.eclipse.jgit", version = { strictly = "[6.10.1.202505221210-r,)", prefer = "6.10.1.202505221210-r" } }
-# jackson 2.22.0: core fixes GHSA-72hv-8253-57qq; databind fixes GHSA-5jmj-h7xm-6q6v plus the
-# 2.21.4 advisories (5hh8, 9fxm, hgj6, rmj7, j3rv, rcqc). 2.21.5 was never published; core/databind
-# kept aligned across the 2.21/2.22 boundary.
-# GHSA-5jmj-h7xm-6q6v was later expanded to cover a regression *in* 2.22.0 itself
-# (CVE-2026-54515, GitHub alert #24); fix targeted at 2.22.1, not yet published to Maven
-# Central as of 2026-07-02. Bump databind (and core, for alignment) to 2.22.1+ once it ships.
-patch-ghsa-72hv-8253-57qq = { module = "com.fasterxml.jackson.core:jackson-core", version = { strictly = "[2.22.0,)", prefer = "2.22.0" } }
-patch-ghsa-5jmj-h7xm-6q6v = { module = "com.fasterxml.jackson.core:jackson-databind", version = { strictly = "[2.22.0,)", prefer = "2.22.0" } }
+# jackson 2.22.1: core fixes GHSA-72hv-8253-57qq; databind fixes GHSA-5jmj-h7xm-6q6v.
+# Keep core and databind aligned to avoid mixing across major version boundaries.
+patch-ghsa-72hv-8253-57qq = { module = "com.fasterxml.jackson.core:jackson-core", version = { strictly = "[2.22.1,)", prefer = "2.22.1" } }
+patch-ghsa-5jmj-h7xm-6q6v = { module = "com.fasterxml.jackson.core:jackson-databind", version = { strictly = "[2.22.1,)", prefer = "2.22.1" } }
 # jackson 3.x (tools.jackson coordinates): databind 3.1.4 fixes the same advisory cluster on the
 # 3.0/3.1 line; core pinned to match for alignment.
 patch-tools-jackson-core = { module = "tools.jackson.core:jackson-core", version = { strictly = "[3.1.4,)", prefer = "3.1.4" } }
