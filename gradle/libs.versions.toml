@@ -4,6 +4,7 @@ java = "25"
 release = "17"
 
 # Overrides for BOM-managed transitive dependency security patches
+jackson = "2.22.1"
 tomcat = "11.0.22"
 
 # Plugin versions

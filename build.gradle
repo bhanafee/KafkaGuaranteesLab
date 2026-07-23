@@ -19,9 +19,9 @@ version = '0.0.1-SNAPSHOT'
 // Override BOM-managed Tomcat version to satisfy CVE-2026-43512 and related advisories
 ext['tomcat.version'] = libs.versions.tomcat.get()
 
-// Override BOM-managed Jackson 2.x to satisfy GHSA-5jmj-h7xm-6q6v: Spring Boot 4.0.7 manages
-// jackson-2-bom 2.21.4, but the advisory's fix is 2.21.5 (never published) / 2.22.0.
-ext['jackson-2-bom.version'] = '2.22.0'
+// Override BOM-managed Jackson 2.x to satisfy GHSA-5jmj-h7xm-6q6v and CVE-2026-54515:
+// Spring Boot 4.0.7 manages jackson-2-bom 2.21.4; fixes require 2.22.1.
+ext['jackson-2-bom.version'] = libs.versions.jackson.get()
 
 java {
     toolchain {
