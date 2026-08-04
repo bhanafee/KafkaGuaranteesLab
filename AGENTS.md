@@ -1,6 +1,6 @@
-# CLAUDE.md
+# Codebase Guidance
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file documents key information about the project architecture, build commands, code style, and security practices.
 
 ## Project overview
 
