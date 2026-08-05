@@ -13,9 +13,7 @@ A Spring Boot application demonstrating Kafka **at-least-once delivery semantics
 ./gradlew test                    # run tests
 ./gradlew test --tests "..."      # run a single test class
 ./gradlew spotlessApply           # auto-format (required before commit)
-./gradlew bootRun                 # run the application (requires Kafka on localhost:9092)
 ./gradlew dependencyCheckAnalyze  # OWASP vulnerability scan (slow; fails at CVSS ≥ 7)
-./kafka-local.sh start|stop|status  # local Kafka via Docker (KRaft mode)
 ```
 
 Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). CI tests on Java 17, 21, and 25.
@@ -45,3 +43,14 @@ Spotless enforces Google Java Format. Run `./gradlew spotlessApply` before commi
 ## Security patches
 
 For CVE patch management, see the `gradle-security-patch` skill. Use `/gradle-security-patch` to pin a CVE fix in the version catalog.
+
+## Local Development
+
+**Running the application:**
+```bash
+./kafka-local.sh start       # start local Kafka (KRaft mode, no ZooKeeper)
+./gradlew bootRun            # start the application (expects Kafka on localhost:9092)
+./kafka-local.sh stop        # stop local Kafka
+```
+
+The application publishes `LanguagePreference` events to Kafka and consumes them for processing.
