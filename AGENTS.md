@@ -8,15 +8,29 @@ A Spring Boot application demonstrating Kafka **at-least-once delivery semantics
 
 ## Commands
 
+**Build and test:**
 ```bash
-./gradlew build                   # compile, test, spotless check
-./gradlew test                    # run tests
-./gradlew test --tests "..."      # run a single test class
+./gradlew build              # compile, test, spotless check
+./gradlew test               # run all tests
+./gradlew test --tests "*ProducerTest"           # run tests by class name
+./gradlew test --tests "*ConsumerTest.test*"     # run tests by method pattern
+```
+
+**Code quality:**
+```bash
 ./gradlew spotlessApply           # auto-format (required before commit)
 ./gradlew dependencyCheckAnalyze  # OWASP vulnerability scan (slow; fails at CVSS ≥ 7)
 ```
 
+**External dependencies:** Requires Kafka broker (see Local Development for local setup).
+
 Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). CI tests on Java 17, 21, and 25.
+
+## Key Entry Points
+
+- **`LanguagePreferenceController`** — HTTP endpoint (`POST /language-preferences`) for publishing events
+- **`LanguagePreferenceProducer`** — sends events to Kafka with retry/circuit-breaker protection
+- **`LanguagePreferenceConsumer`** — consumes events from Kafka and processes them
 
 ## Architecture
 
