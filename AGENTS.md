@@ -9,29 +9,18 @@ A Spring Boot application demonstrating Kafka **at-least-once delivery semantics
 ## Commands
 
 ```bash
-# Build and run all tests
-./gradlew build
-
-# Run tests only
-./gradlew test
-
-# Run a single test class
-./gradlew test --tests "com.maybeitssquid.kafkaguaranteeslab.LanguagePreferenceProducerTest"
-
-./gradlew spotlessApply          # auto-format (Google Java Format)
-./gradlew spotlessCheck          # check formatting without applying
-./gradlew dependencyCheckAnalyze # OWASP CVE scan (fails build at CVSS ≥ 7)
-
-# Run the application (requires Kafka on localhost:9092)
-./gradlew bootRun
-
-# Local Kafka via Docker (KRaft mode, no ZooKeeper)
-./kafka-local.sh start
-./kafka-local.sh stop
-./kafka-local.sh status
+./gradlew build                   # compile, test, spotless check
+./gradlew test                    # run tests
+./gradlew test --tests "..."      # run a single test class
+./gradlew spotlessApply           # auto-format (required before commit)
+./gradlew bootRun                 # run the application (requires Kafka on localhost:9092)
+./gradlew dependencyCheckAnalyze  # OWASP vulnerability scan (slow; fails at CVSS ≥ 7)
+./kafka-local.sh start|stop|status  # local Kafka via Docker (KRaft mode)
 ```
 
-On Windows, use `gradlew.bat` (or `.\gradlew` in PowerShell); `kafka-local.sh` requires a POSIX shell (Git Bash/WSL).
+On Windows, use `gradlew.bat` (or `.\gradlew` in PowerShell). The `kafka-local.sh` script requires a POSIX shell (Git Bash/WSL).
+
+Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). CI tests on Java 17, 21, and 25.
 
 ## Architecture
 
@@ -63,4 +52,4 @@ Spotless enforces Google Java Format. Run `./gradlew spotlessApply` before commi
 
 ## Security patches
 
-Transitive CVE fixes go in `gradle/libs.versions.toml` as `patch-<cve-id>` library entries using `strictly`/`prefer` version constraints, collected in the `security-patches` bundle. `build.gradle` applies the bundle as `constraints { }` blocks; `settings.gradle` also pre-loads the patches onto the buildscript classpath. When adding a new CVE pin, add it to both `[libraries]` and the `security-patches` bundle. The OWASP dependency check plugin (`./gradlew dependencyCheckAnalyze`) fails the build at CVSS ≥ 7.
+For CVE patch management, see the `gradle-security-patch` skill. Use `/gradle-security-patch` to pin a CVE fix in the version catalog.
