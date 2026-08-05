@@ -36,13 +36,7 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 
 **Resilience4j config** lives in `application.yml` under `resilience4j.circuitbreaker` and `resilience4j.retry`. Both producer and consumer have named instances.
 
-**Observability**: Actuator exposes `health`, `info`, `prometheus`, `circuitbreakers`, and `retries`. Circuit breaker health is surfaced in `/actuator/health`.
-
-### Testing
-
-Tests use `@EmbeddedKafka` (no external broker needed). `@DirtiesContext` resets the application context between test classes. Add new tests in the same package under `src/test/`.
-
-The build uses a Java 25 toolchain and compiles to Java 17 bytecode (`release = "17"`). CI runs against Java 17, 21, and 25 in parallel.
+**Observability**: Actuator exposes `health`, `info`, `prometheus`, `circuitbreakers`, and `retries`.
 
 ## Code style
 
