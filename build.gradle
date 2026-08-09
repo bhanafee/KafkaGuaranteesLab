@@ -37,6 +37,18 @@ repositories {
     mavenCentral()
 }
 
+// Dynamic version ranges otherwise resolve to prereleases; slf4j "2.+" picks up 2.1.0-alpha1.
+// Match known prerelease qualifiers rather than allowlisting stable ones. Stable releases carry
+// odd suffixes — 0.0.20131108.vaadin1 and 2.3.1-b170201.1204 are both stable — and an allowlist
+// rejects them, breaking resolution of transitive dependencies.
+configurations.all {
+    resolutionStrategy.componentSelection.all { selection ->
+        if (selection.candidate.version ==~ /(?i).*[.\-](alpha|beta|rc|cr|snapshot|preview|dev|milestone|m\d+)[.\-]?\d*$/) {
+            selection.reject('prerelease version')
+        }
+    }
+}
+
 dependencies {
     constraints {
         libs.bundles.security.patches.get().each {
