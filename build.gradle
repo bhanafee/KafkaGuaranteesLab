@@ -60,6 +60,17 @@ dependencies {
     testImplementation libs.resilience4j.test
 }
 
+dependencyManagement {
+    // Override BOM-managed versions for security patches (versions from catalog)
+    dependencies {
+        dependency "org.apache.httpcomponents.core5:httpcore5-h2:${libs.versions.httpcore5H2.get()}"
+        dependency "org.apache.httpcomponents.core5:httpcore5:${libs.versions.httpcore5Core.get()}"
+        dependency "org.apache.httpcomponents.client5:httpclient5:${libs.versions.httpclient5.get()}"
+        dependency "org.apache.logging.log4j:log4j-api:${libs.versions.log4jApi.get()}"
+        dependency "org.apache.logging.log4j:log4j-to-slf4j:${libs.versions.log4jApi.get()}"
+    }
+}
+
 tasks.named('test') {
     useJUnitPlatform()
 }
