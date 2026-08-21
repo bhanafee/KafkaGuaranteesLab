@@ -48,9 +48,7 @@ dependencies {
             add('implementation', it)
         }
     }
-    implementation libs.spring.boot.web
-    implementation libs.spring.boot.actuator
-    implementation libs.spring.boot.aspectj
+    implementation libs.bundles.spring.boot.core
     implementation libs.spring.kafka
     implementation libs.resilience4j.spring.boot
     implementation libs.micrometer.prometheus
