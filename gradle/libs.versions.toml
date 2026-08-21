@@ -56,8 +56,14 @@ patch-cve-2026-54515 = { module = "com.fasterxml.jackson.core:jackson-databind",
 patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-core = { module = "tools.jackson.core:jackson-core", version = { strictly = "[3.1.5,)", prefer = "3.1.5" } }
 patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-databind = { module = "tools.jackson.core:jackson-databind", version = { strictly = "[3.1.5,)", prefer = "3.1.5" } }
 
+# Security patches - Apache HttpComponents (DoS vulnerabilities)
+patch-cve-2026-54428 = { module = "org.apache.httpcomponents.core5:httpcore5-h2", version = { strictly = "[5.4.3,)", prefer = "5.4.3" } }
+patch-cve-2026-54399 = { module = "org.apache.httpcomponents.core5:httpcore5", version = { strictly = "[5.4.3,)", prefer = "5.4.3" } }
+patch-cve-2026-64607 = { module = "org.apache.httpcomponents.client5:httpclient5", version = { strictly = "[5.6.3,)", prefer = "5.6.3" } }
+patch-cve-2026-49844 = { module = "org.apache.logging.log4j:log4j-api", version = { strictly = "[2.25.5,)", prefer = "2.25.5" } }
+
 [bundles]
-security-patches = ["patch-cve-2022-45868", "patch-cve-2025-4949", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2025-5826", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-5598-bcpg", "patch-cve-2026-5598-bcprov", "patch-cve-2026-54515", "patch-ghsa-72hv-8253-57qq", "patch-ghsa-5jmj-h7xm-6q6v", "patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-core", "patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-databind", "patch-ghsa-dcmj-56c4-q8dh"]
+security-patches = ["patch-cve-2022-45868", "patch-cve-2025-4949", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2025-5826", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-54515", "patch-cve-2026-64607", "patch-cve-2026-5598-bcpg", "patch-cve-2026-5598-bcprov", "patch-ghsa-72hv-8253-57qq", "patch-ghsa-5jmj-h7xm-6q6v", "patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-core", "patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-databind", "patch-ghsa-dcmj-56c4-q8dh"]
 
 [plugins]
 spring-boot     = { id = "org.springframework.boot",        version.ref = "spring-boot" }
