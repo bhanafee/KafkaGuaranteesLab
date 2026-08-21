@@ -63,6 +63,10 @@ dependencies {
 dependencyManagement {
     // Override BOM-managed versions for security patches (versions from catalog)
     dependencies {
+        // Tomcat CVEs (53404, 59084, 66299, 55276, 59083, 53434 fixed in 11.0.25+)
+        dependency "org.apache.tomcat.embed:tomcat-embed-core:${libs.versions.tomcat.get()}"
+        dependency "org.apache.tomcat.embed:tomcat-embed-el:${libs.versions.tomcat.get()}"
+        dependency "org.apache.tomcat.embed:tomcat-embed-websocket:${libs.versions.tomcat.get()}"
         dependency "org.apache.httpcomponents.core5:httpcore5-h2:${libs.versions.httpcore5H2.get()}"
         dependency "org.apache.httpcomponents.core5:httpcore5:${libs.versions.httpcore5Core.get()}"
         dependency "org.apache.httpcomponents.client5:httpclient5:${libs.versions.httpclient5.get()}"

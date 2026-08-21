@@ -5,7 +5,7 @@ release = "17"
 
 # Overrides for BOM-managed transitive dependency security patches
 jackson = "2.22.1"
-tomcat = "11.0.22"
+tomcat = "11.0.25"
 httpcore5H2 = "5.4.3"
 httpcore5Core = "5.4.3"
 httpclient5 = "5.6.3"
@@ -37,10 +37,16 @@ patch-cve-2026-5598-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", versi
 patch-cve-2025-48734 = { module = "commons-beanutils:commons-beanutils", version = { strictly = "[1.11.0,)", prefer = "1.11.0" } }
 patch-cve-2025-48924 = { module = "org.apache.commons:commons-lang3", version = { strictly = "[3.18.0,)", prefer = "3.18.0" } }
 
-# Security patches - Apache Tomcat (CVE-2026-43512: digest auth bypass; all three embed artifacts must match)
-patch-cve-2026-43512-core = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.22,)", prefer = "11.0.22" } }
-patch-cve-2026-43512-el = { module = "org.apache.tomcat.embed:tomcat-embed-el", version = { strictly = "[11.0.22,)", prefer = "11.0.22" } }
-patch-cve-2026-43512-ws = { module = "org.apache.tomcat.embed:tomcat-embed-websocket", version = { strictly = "[11.0.22,)", prefer = "11.0.22" } }
+# Security patches - Apache Tomcat (CVE-2026-43512: digest auth bypass; CVEs 53404,59084,66299,55276,59083,53434 fixed in 11.0.24+)
+patch-cve-2026-43512-core = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.24,)", prefer = "11.0.24" } }
+patch-cve-2026-43512-el = { module = "org.apache.tomcat.embed:tomcat-embed-el", version = { strictly = "[11.0.24,)", prefer = "11.0.24" } }
+patch-cve-2026-43512-ws = { module = "org.apache.tomcat.embed:tomcat-embed-websocket", version = { strictly = "[11.0.24,)", prefer = "11.0.24" } }
+patch-cve-2026-53404 = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.24,)", prefer = "11.0.24" } }
+patch-cve-2026-55276 = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.24,)", prefer = "11.0.24" } }
+patch-cve-2026-59083 = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.24,)", prefer = "11.0.24" } }
+patch-cve-2026-59084 = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.24,)", prefer = "11.0.24" } }
+patch-cve-2026-66299 = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.24,)", prefer = "11.0.24" } }
+patch-cve-2026-53434 = { module = "org.apache.tomcat.embed:tomcat-embed-websocket", version = { strictly = "[11.0.24,)", prefer = "11.0.24" } }
 
 # Security patches - Spring Kafka (CVE-2026-41731 deserialization; also covers CVE-2026-41726 unbounded delegate cache)
 patch-cve-2026-41731 = { module = "org.springframework.kafka:spring-kafka", version = { strictly = "[4.0.6,)", prefer = "4.0.6" } }
@@ -67,7 +73,7 @@ patch-cve-2026-64607 = { module = "org.apache.httpcomponents.client5:httpclient5
 patch-cve-2026-49844 = { module = "org.apache.logging.log4j:log4j-api", version = { strictly = "[2.25.5,)", prefer = "2.25.5" } }
 
 [bundles]
-security-patches = ["patch-cve-2022-45868", "patch-cve-2025-4949", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2025-5826", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-54515", "patch-cve-2026-64607", "patch-cve-2026-5598-bcpg", "patch-cve-2026-5598-bcprov", "patch-ghsa-72hv-8253-57qq", "patch-ghsa-5jmj-h7xm-6q6v", "patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-core", "patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-databind", "patch-ghsa-dcmj-56c4-q8dh"]
+security-patches = ["patch-cve-2022-45868", "patch-cve-2025-4949", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2025-5826", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-53404", "patch-cve-2026-53434", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-54515", "patch-cve-2026-55276", "patch-cve-2026-59083", "patch-cve-2026-59084", "patch-cve-2026-64607", "patch-cve-2026-66299", "patch-cve-2026-5598-bcpg", "patch-cve-2026-5598-bcprov", "patch-ghsa-72hv-8253-57qq", "patch-ghsa-5jmj-h7xm-6q6v", "patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-core", "patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-databind", "patch-ghsa-dcmj-56c4-q8dh"]
 
 [plugins]
 spring-boot     = { id = "org.springframework.boot",        version.ref = "spring-boot" }
