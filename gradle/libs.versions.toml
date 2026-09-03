@@ -9,6 +9,7 @@ httpcore5H2 = "5.4.3"
 httpcore5Core = "5.4.3"
 httpclient5 = "5.6.3"
 log4jApi = "2.25.5"
+lz4Java = "1.11.1"
 
 # Plugin versions
 spring-boot           = "4.1.1"
@@ -68,9 +69,12 @@ patch-cve-2026-54399 = { module = "org.apache.httpcomponents.core5:httpcore5", v
 patch-cve-2026-64607 = { module = "org.apache.httpcomponents.client5:httpclient5", version = { strictly = "[5.6.3,)", prefer = "5.6.3" } }
 patch-cve-2026-49844 = { module = "org.apache.logging.log4j:log4j-api", version = { strictly = "[2.25.5,)", prefer = "2.25.5" } }
 
+# Security patches - LZ4 (CVE-2026-59949: JNI XXHash implementations can crash JVM with invalid byte array ranges)
+patch-cve-2026-59949 = { module = "at.yawk.lz4:lz4-java", version = { strictly = "[1.11.1,)", prefer = "1.11.1" } }
+
 [bundles]
 spring-boot-core = ["spring-boot-web", "spring-boot-actuator", "spring-boot-aspectj"]
-security-patches = ["patch-cve-2022-45868", "patch-cve-2025-4949", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-53404", "patch-cve-2026-53434", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-54515", "patch-cve-2026-55276", "patch-cve-2026-59083", "patch-cve-2026-59084", "patch-cve-2026-64607", "patch-cve-2026-66299", "patch-ghsa-72hv-8253-57qq", "patch-ghsa-5jmj-h7xm-6q6v", "patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-core", "patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-databind", "patch-ghsa-dcmj-56c4-q8dh"]
+security-patches = ["patch-cve-2022-45868", "patch-cve-2025-4949", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-53404", "patch-cve-2026-53434", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-54515", "patch-cve-2026-55276", "patch-cve-2026-59083", "patch-cve-2026-59084", "patch-cve-2026-59949", "patch-cve-2026-64607", "patch-cve-2026-66299", "patch-ghsa-72hv-8253-57qq", "patch-ghsa-5jmj-h7xm-6q6v", "patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-core", "patch-ghsa-5gvw-p9qm-jgwh-tools-jackson-databind", "patch-ghsa-dcmj-56c4-q8dh"]
 
 [plugins]
 spring-boot     = { id = "org.springframework.boot",        version.ref = "spring-boot" }
