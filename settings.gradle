@@ -4,15 +4,17 @@ gradle.beforeProject { proj ->
     if (proj == proj.rootProject) {
         def tomlFile = new File(proj.rootDir, 'gradle/libs.versions.toml')
         tomlFile.eachLine { line ->
-            def matcher = line =~ /^patch-[a-z0-9-]+ = \{ module = "([^"]+)", version = \{ strictly = "[^"]+", prefer = "([^"]+)"/
+            def matcher = line =~ /^patch-[a-z0-9-]+ = \{ module = "([^"]+)", version = \{ strictly = "([^"]+)"(?:, prefer = "([^"]+)")?/
             if (matcher) {
                 def module = matcher[0][1]
-                def patchVersion = matcher[0][2]
+                def strictVersion = matcher[0][2]
+                def preferVersion = matcher[0][3]
+                def patchVersion = preferVersion ?: strictVersion.replaceAll(/[\[\],)"]/, '').split(',')[0]
                 // Constraint, not a dependency: forces the patched floor only when the module is
                 // already on the buildscript classpath; never adds new deps (app-only patches such
                 // as spring-kafka/tomcat apply as implementation constraints in build.gradle instead).
                 proj.buildscript.dependencies.constraints.add('classpath', module) {
-                    version { require "[${patchVersion},)"; prefer patchVersion }
+                    version { require strictVersion; prefer patchVersion }
                     because 'transitive security patch'
                 }
             }
