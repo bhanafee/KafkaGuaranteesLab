@@ -113,6 +113,11 @@ testing {
                             .orElse(libs.versions.java)
                             .map { JavaLanguageVersion.of(it) }
                 }
+                // Log the test JVM so each CI job shows which Java its tests ran on.
+                doFirst { task ->
+                    def jvm = task.javaLauncher.get().metadata
+                    task.logger.lifecycle("Tests run on Java ${jvm.languageVersion} (${jvm.installationPath})")
+                }
             }
         }
     }
