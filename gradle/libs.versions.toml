@@ -13,15 +13,16 @@ owasp-dependencycheck = "13.+"
 resilience4j = "2.+"
 
 [libraries]
-spring-boot-web = { module = "org.springframework.boot:spring-boot-starter-web" }
-spring-boot-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
-spring-boot-aspectj = { module = "org.springframework.boot:spring-boot-starter-aspectj" }
-spring-boot-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
+spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+spring-boot-starter-aspectj = { module = "org.springframework.boot:spring-boot-starter-aspectj" }
+spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
 spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
 spring-kafka-test = { module = "org.springframework.kafka:spring-kafka-test" }
 resilience4j-spring-boot = { module = "io.github.resilience4j:resilience4j-spring-boot4", version.ref = "resilience4j" }
 resilience4j-test = { module = "io.github.resilience4j:resilience4j-test", version.ref = "resilience4j" }
 micrometer-prometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 
 # Security patches - Apache Commons
 patch-cve-2025-48734 = { module = "commons-beanutils:commons-beanutils", version = { strictly = "[1.11.0,)", prefer = "1.11.0" } }
@@ -66,7 +67,7 @@ patch-cve-2026-49844-log4j-to-slf4j = { module = "org.apache.logging.log4j:log4j
 patch-cve-2026-106451 = { module = "at.yawk.lz4:lz4-java", version = { strictly = "[1.11.4,)", prefer = "1.11.4" } }
 
 [bundles]
-spring-boot-core = ["spring-boot-web", "spring-boot-actuator", "spring-boot-aspectj"]
+spring-boot-core = ["spring-boot-starter-web", "spring-boot-starter-actuator", "spring-boot-starter-aspectj"]
 security-patches = ["patch-cve-2022-45868", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2025-4949", "patch-cve-2026-106451", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-49844-log4j-to-slf4j", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-71290", "patch-cve-2026-75140", "patch-cve-2026-89407", "patch-cve-2026-89407-tools-jackson-core", "patch-cve-2026-91776", "patch-cve-2026-91776-tools-jackson-databind"]
 
 [plugins]
