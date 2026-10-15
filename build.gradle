@@ -8,7 +8,7 @@ plugins {
     id 'java'
     id 'jacoco'
     alias(libs.plugins.spring.boot)
-    alias(libs.plugins.spring.dep.mgmt)
+    alias(libs.plugins.spring.dependency.management)
     alias(libs.plugins.spotless)
     alias(libs.plugins.owasp.dependencycheck)
 }
@@ -58,27 +58,39 @@ dependencies {
     testImplementation libs.resilience4j.test
 }
 
+// Spring Boot's BOM wins over the catalog's security-patch constraints for the modules it manages,
+// so those modules also need a dependencyManagement override. The versions come from the patch
+// entries in the catalog, so each patched version is declared only once.
+def patchVersion = { String module ->
+    def patch = libs.bundles.security.patches.get().find { it.module.toString() == module }
+    if (patch == null) {
+        throw new GradleException("No security-patches entry for ${module}")
+    }
+    patch.versionConstraint.preferredVersion
+}
+
 dependencyManagement {
     // Jackson BOMs import after Spring Boot's, so they override its Jackson versions and keep
     // every module aligned. Jackson 2 last so its jackson-annotations wins over Jackson 3's.
     imports {
-        mavenBom "tools.jackson:jackson-bom:${libs.versions.jackson3.get()}"
-        mavenBom "com.fasterxml.jackson:jackson-bom:${libs.versions.jackson.get()}"
+        mavenBom "tools.jackson:jackson-bom:${patchVersion('tools.jackson.core:jackson-databind')}"
+        mavenBom "com.fasterxml.jackson:jackson-bom:${patchVersion('com.fasterxml.jackson.core:jackson-databind')}"
     }
 
-    // Override BOM-managed versions for security patches (versions from catalog)
     dependencies {
-        // Tomcat CVEs (53404, 59084, 66299, 55276, 59083, 53434 fixed in 11.0.25+)
-        dependency "org.apache.tomcat.embed:tomcat-embed-core:${libs.versions.tomcat.get()}"
-        dependency "org.apache.tomcat.embed:tomcat-embed-el:${libs.versions.tomcat.get()}"
-        dependency "org.apache.tomcat.embed:tomcat-embed-websocket:${libs.versions.tomcat.get()}"
-        dependency "org.apache.httpcomponents.core5:httpcore5-h2:${libs.versions.httpcore5H2.get()}"
-        dependency "org.apache.httpcomponents.core5:httpcore5:${libs.versions.httpcore5Core.get()}"
-        dependency "org.apache.httpcomponents.client5:httpclient5:${libs.versions.httpclient5.get()}"
-        dependency "org.apache.logging.log4j:log4j-api:${libs.versions.log4jApi.get()}"
-        dependency "org.apache.logging.log4j:log4j-to-slf4j:${libs.versions.log4jApi.get()}"
-        // LZ4 Java XXHash (CVE-2026-59949: JVM crash vulnerability fixed in 1.11.1+)
-        dependency "at.yawk.lz4:lz4-java:${libs.versions.lz4Java.get()}"
+        [
+            'org.apache.tomcat.embed:tomcat-embed-core',
+            'org.apache.tomcat.embed:tomcat-embed-el',
+            'org.apache.tomcat.embed:tomcat-embed-websocket',
+            'org.apache.httpcomponents.core5:httpcore5-h2',
+            'org.apache.httpcomponents.core5:httpcore5',
+            'org.apache.httpcomponents.client5:httpclient5',
+            'org.apache.logging.log4j:log4j-api',
+            'org.apache.logging.log4j:log4j-to-slf4j',
+            'at.yawk.lz4:lz4-java',
+        ].each { module ->
+            dependency "${module}:${patchVersion(module)}"
+        }
     }
 }
 
