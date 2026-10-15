@@ -20,7 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       # Gradle and the compiler run on the JDK 25 toolchain (listed last, so it is the default);
-      # the tests run on the matrix JDK, passed to the build as testJava.
+      # the tests run on the matrix JDK, passed to the build as testJava. check-latest takes the
+      # newest Temurin patch from Adoptium instead of the runner image's copy, which has lagged
+      # releases by days to weeks.
       - name: Set up JDK ${{ matrix.java-version }} for tests and JDK 25 for the build
         uses: actions/setup-java@v5
         with:
@@ -28,6 +30,7 @@ jobs:
             ${{ matrix.java-version }}
             25
           distribution: 'temurin'
+          check-latest: true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
@@ -37,6 +40,7 @@ jobs:
           ./gradlew build
           -PtestJava=${{ matrix.java-version }}
           -Porg.gradle.java.installations.fromEnv=JAVA_HOME_${{ matrix.java-version }}_X64,JAVA_HOME_25_X64
+          -Porg.gradle.java.installations.auto-detect=false
 
       - name: Upload test results
         if: always()
