@@ -1,4 +1,4 @@
-rootProject.name = 'kafka-guarantees-lab'
+rootProject.name = 'KafkaGuaranteesLab'
 
 gradle.beforeProject { proj ->
     if (proj == proj.rootProject) {
