@@ -73,13 +73,14 @@ patch-cve-2026-54399 = { module = "org.apache.httpcomponents.core5:httpcore5", v
 # httpclient5 5.6.4 fixes CVE-2026-71290 (async client ignores hostname verification); supersedes the 5.6.3 pin for CVE-2026-64607.
 patch-cve-2026-71290 = { module = "org.apache.httpcomponents.client5:httpclient5", version = { strictly = "[5.6.4,)", prefer = "5.6.4" } }
 patch-cve-2026-49844 = { module = "org.apache.logging.log4j:log4j-api", version = { strictly = "[2.25.5,)", prefer = "2.25.5" } }
+patch-cve-2026-49844-log4j-to-slf4j = { module = "org.apache.logging.log4j:log4j-to-slf4j", version = { strictly = "[2.25.5,)", prefer = "2.25.5" } }
 
 # Security patches - LZ4 (1.11.4: CVE-2026-106451 also covers CVE-2026-106449/106450/106452/106453 and CVE-2026-59949)
 patch-cve-2026-106451 = { module = "at.yawk.lz4:lz4-java", version = { strictly = "[1.11.4,)", prefer = "1.11.4" } }
 
 [bundles]
 spring-boot-core = ["spring-boot-web", "spring-boot-actuator", "spring-boot-aspectj"]
-security-patches = ["patch-cve-2022-45868", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2025-4949", "patch-cve-2026-106451", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-53404", "patch-cve-2026-53434", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-55276", "patch-cve-2026-59083", "patch-cve-2026-59084", "patch-cve-2026-66299", "patch-cve-2026-71290", "patch-cve-2026-75140", "patch-cve-2026-89407", "patch-cve-2026-89407-tools-jackson-core", "patch-cve-2026-91776", "patch-cve-2026-91776-tools-jackson-databind"]
+security-patches = ["patch-cve-2022-45868", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2025-4949", "patch-cve-2026-106451", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-49844-log4j-to-slf4j", "patch-cve-2026-53404", "patch-cve-2026-53434", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-55276", "patch-cve-2026-59083", "patch-cve-2026-59084", "patch-cve-2026-66299", "patch-cve-2026-71290", "patch-cve-2026-75140", "patch-cve-2026-89407", "patch-cve-2026-89407-tools-jackson-core", "patch-cve-2026-91776", "patch-cve-2026-91776-tools-jackson-databind"]
 
 [plugins]
 spring-boot     = { id = "org.springframework.boot",        version.ref = "spring-boot" }
