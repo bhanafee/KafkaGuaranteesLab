@@ -27,16 +27,13 @@ micrometer-prometheus = { module = "io.micrometer:micrometer-registry-prometheus
 patch-cve-2025-48734 = { module = "commons-beanutils:commons-beanutils", version = { strictly = "[1.11.0,)", prefer = "1.11.0" } }
 patch-cve-2025-48924 = { module = "org.apache.commons:commons-lang3", version = { strictly = "[3.18.0,)", prefer = "3.18.0" } }
 
-# Security patches - Apache Tomcat (CVE-2026-43512: digest auth bypass; CVEs 53404,59084,66299,55276,59083,53434 fixed in 11.0.24+)
+# Security patches - Apache Tomcat 11.0.25 (Spring Boot 4.1.1 manages 11.0.24). One entry per module,
+# named for CVE-2026-43512 (digest auth bypass). 11.0.25 also fixes CVE-2026-53404, CVE-2026-55276,
+# CVE-2026-59083, CVE-2026-59084 and CVE-2026-66299 (tomcat-embed-core) and CVE-2026-53434
+# (tomcat-embed-websocket). tomcat-embed-el is pinned with them to keep the modules aligned.
 patch-cve-2026-43512-core = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.25,)", prefer = "11.0.25" } }
 patch-cve-2026-43512-el = { module = "org.apache.tomcat.embed:tomcat-embed-el", version = { strictly = "[11.0.25,)", prefer = "11.0.25" } }
 patch-cve-2026-43512-ws = { module = "org.apache.tomcat.embed:tomcat-embed-websocket", version = { strictly = "[11.0.25,)", prefer = "11.0.25" } }
-patch-cve-2026-53404 = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.25,)", prefer = "11.0.25" } }
-patch-cve-2026-55276 = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.25,)", prefer = "11.0.25" } }
-patch-cve-2026-59083 = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.25,)", prefer = "11.0.25" } }
-patch-cve-2026-59084 = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.25,)", prefer = "11.0.25" } }
-patch-cve-2026-66299 = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.25,)", prefer = "11.0.25" } }
-patch-cve-2026-53434 = { module = "org.apache.tomcat.embed:tomcat-embed-websocket", version = { strictly = "[11.0.25,)", prefer = "11.0.25" } }
 
 # Security patches - Spring Kafka (CVE-2026-41731 deserialization; also covers CVE-2026-41726 unbounded delegate cache)
 patch-cve-2026-41731 = { module = "org.springframework.kafka:spring-kafka", version = { strictly = "[4.0.6,)", prefer = "4.0.6" } }
@@ -70,7 +67,7 @@ patch-cve-2026-106451 = { module = "at.yawk.lz4:lz4-java", version = { strictly 
 
 [bundles]
 spring-boot-core = ["spring-boot-web", "spring-boot-actuator", "spring-boot-aspectj"]
-security-patches = ["patch-cve-2022-45868", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2025-4949", "patch-cve-2026-106451", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-49844-log4j-to-slf4j", "patch-cve-2026-53404", "patch-cve-2026-53434", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-55276", "patch-cve-2026-59083", "patch-cve-2026-59084", "patch-cve-2026-66299", "patch-cve-2026-71290", "patch-cve-2026-75140", "patch-cve-2026-89407", "patch-cve-2026-89407-tools-jackson-core", "patch-cve-2026-91776", "patch-cve-2026-91776-tools-jackson-databind"]
+security-patches = ["patch-cve-2022-45868", "patch-cve-2025-48734", "patch-cve-2025-48924", "patch-cve-2025-4949", "patch-cve-2026-106451", "patch-cve-2026-41731", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-49844-log4j-to-slf4j", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-71290", "patch-cve-2026-75140", "patch-cve-2026-89407", "patch-cve-2026-89407-tools-jackson-core", "patch-cve-2026-91776", "patch-cve-2026-91776-tools-jackson-databind"]
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
