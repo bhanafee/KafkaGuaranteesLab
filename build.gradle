@@ -6,6 +6,7 @@ buildscript {
 
 plugins {
     id 'java'
+    id 'jvm-test-suite'
     id 'jacoco'
     alias(libs.plugins.spring.boot)
     alias(libs.plugins.spring.dependency.management)
@@ -52,10 +53,6 @@ dependencies {
     implementation libs.spring.kafka
     implementation libs.resilience4j.spring.boot
     implementation libs.micrometer.prometheus
-
-    testImplementation libs.spring.boot.test
-    testImplementation libs.spring.kafka.test
-    testImplementation libs.resilience4j.test
 }
 
 // Spring Boot's BOM wins over the catalog's security-patch constraints for the modules it manages,
@@ -94,8 +91,19 @@ dependencyManagement {
     }
 }
 
-tasks.named('test') {
-    useJUnitPlatform()
+testing {
+    suites.test {
+        // The version comes from the Spring Boot BOM. Without one, useJUnitJupiter() declares Gradle's
+        // default, and the dependency-management plugin lets a declared version win over the BOM. Read
+        // lazily, so BOMs imported later in the build (such as a subproject's Spring Cloud BOM) count.
+        useJUnitJupiter(provider { dependencyManagement.importedProperties['junit-jupiter.version'] })
+        dependencies {
+            implementation libs.spring.boot.starter.test
+            implementation libs.spring.kafka.test
+            implementation libs.resilience4j.test
+            runtimeOnly libs.junit.platform.launcher
+        }
+    }
 }
 
 tasks.named('jacocoTestReport') {
