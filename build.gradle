@@ -103,6 +103,18 @@ testing {
             implementation libs.resilience4j.test
             runtimeOnly libs.junit.platform.launcher
         }
+
+        // Tests run on the JDK named by -PtestJava (CI passes each matrix version); without it, on the
+        // toolchain. Compilation always uses the toolchain, targeting the release version.
+        targets.configureEach {
+            testTask.configure {
+                javaLauncher = javaToolchains.launcherFor {
+                    languageVersion = providers.gradleProperty('testJava')
+                            .orElse(libs.versions.java)
+                            .map { JavaLanguageVersion.of(it) }
+                }
+            }
+        }
     }
 }
 

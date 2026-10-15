@@ -19,17 +19,24 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-      - name: Set up JDK ${{ matrix.java-version }}
+      # Gradle and the compiler run on the JDK 25 toolchain (listed last, so it is the default);
+      # the tests run on the matrix JDK, passed to the build as testJava.
+      - name: Set up JDK ${{ matrix.java-version }} for tests and JDK 25 for the build
         uses: actions/setup-java@v5
         with:
-          java-version: ${{ matrix.java-version }}
+          java-version: |
+            ${{ matrix.java-version }}
+            25
           distribution: 'temurin'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
 
       - name: Build with Gradle
-        run: ./gradlew build
+        run: >-
+          ./gradlew build
+          -PtestJava=${{ matrix.java-version }}
+          -Porg.gradle.java.installations.fromEnv=JAVA_HOME_${{ matrix.java-version }}_X64,JAVA_HOME_25_X64
 
       - name: Upload test results
         if: always()
