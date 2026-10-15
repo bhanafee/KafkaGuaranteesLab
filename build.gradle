@@ -119,3 +119,17 @@ spotless {
 dependencyCheck {
     failBuildOnCVSS = 7
 }
+
+tasks.withType(Javadoc).configureEach {
+    options {
+        encoding = 'UTF-8'
+        links "https://docs.oracle.com/en/java/javase/${libs.versions.java.get()}/docs/api/"
+        addBooleanOption('html5', true)
+        // Standard JDK documentation tags are not registered for non-JDK code by default
+        tags(
+                'apiNote:a:API Note:',
+                'implSpec:a:Implementation Requirements:',
+                'implNote:a:Implementation Note:'
+        )
+    }
+}
