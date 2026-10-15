@@ -59,6 +59,13 @@ dependencies {
 }
 
 dependencyManagement {
+    // Jackson BOMs import after Spring Boot's, so they override its Jackson versions and keep
+    // every module aligned. Jackson 2 last so its jackson-annotations wins over Jackson 3's.
+    imports {
+        mavenBom "tools.jackson:jackson-bom:${libs.versions.jackson3.get()}"
+        mavenBom "com.fasterxml.jackson:jackson-bom:${libs.versions.jackson.get()}"
+    }
+
     // Override BOM-managed versions for security patches (versions from catalog)
     dependencies {
         // Tomcat CVEs (53404, 59084, 66299, 55276, 59083, 53434 fixed in 11.0.25+)
