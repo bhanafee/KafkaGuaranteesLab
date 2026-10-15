@@ -40,3 +40,35 @@ jobs:
         with:
           name: test-results-java-${{ matrix.java }}
           path: build/reports/tests/
+
+  line-endings:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check wrapper script line endings
+        # gradlew must be stored LF and gradlew.bat CRLF; `./gradlew wrapper` regenerates both correctly.
+        run: |
+          rc=0
+          check() {
+            actual=$(git ls-files --eol -- "$1" | awk '{print $1}')
+            if [ "$actual" != "i/$2" ]; then
+              echo "::error file=$1::$1 is stored with ${actual#i/} line endings, expected $2. Regenerate with ./gradlew wrapper."
+              rc=1
+            fi
+          }
+          check gradlew lf
+          check gradlew.bat crlf
+          exit $rc
+
+      - name: Check files match .gitattributes
+        run: |
+          git add --renormalize .
+          if ! git diff --cached --quiet; then
+            echo "::error::These files are not stored as .gitattributes requires; run 'git add --renormalize .' and commit:"
+            git diff --cached --stat
+            exit 1
+          fi
