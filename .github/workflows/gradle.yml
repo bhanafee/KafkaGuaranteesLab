@@ -80,3 +80,21 @@ jobs:
             git diff --cached --stat
             exit 1
           fi
+
+  shared-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check out claude-skills for the canonical shared build sections
+        uses: actions/checkout@v6
+        with:
+          repository: bhanafee/claude-skills
+          path: claude-skills
+          sparse-checkout: init-java-project/shared
+
+      - name: Check shared build sections against claude-skills
+        run: bash claude-skills/init-java-project/shared/check-shared-sections.sh . claude-skills/init-java-project/shared

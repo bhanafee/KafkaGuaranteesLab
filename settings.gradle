@@ -1,5 +1,6 @@
 rootProject.name = 'KafkaGuaranteesLab'
 
+// shared:begin patch-constraints
 gradle.beforeProject { proj ->
     if (proj == proj.rootProject) {
         def tomlFile = new File(proj.rootDir, 'gradle/libs.versions.toml')
@@ -21,3 +22,4 @@ gradle.beforeProject { proj ->
         }
     }
 }
+// shared:end patch-constraints

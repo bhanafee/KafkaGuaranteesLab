@@ -17,20 +17,11 @@ plugins {
 group = 'com.maybeitssquid'
 version = '0.0.1-SNAPSHOT'
 
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(libs.versions.java.get())
-    }
-}
-
-tasks.withType(JavaCompile).configureEach {
-    options.release = libs.versions.release.get().toInteger()
-}
-
 repositories {
     mavenCentral()
 }
 
+// shared:begin build
 // Dynamic version ranges otherwise resolve to prereleases; slf4j "2.+" picks up 2.1.0-alpha1.
 // Match known prerelease qualifiers rather than allowlisting stable ones. Stable releases carry
 // odd suffixes — 0.0.20131108.vaadin1 and 2.3.1-b170201.1204 are both stable — and an allowlist
@@ -43,12 +34,81 @@ configurations.all {
     }
 }
 
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(libs.versions.java.get())
+    }
+    withSourcesJar()
+    withJavadocJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = libs.versions.release.get().toInteger()
+}
+
 dependencies {
     constraints {
         libs.bundles.security.patches.get().each {
             add('implementation', it)
         }
     }
+}
+
+tasks.named('jacocoTestReport') {
+    dependsOn tasks.named('test')
+    reports {
+        html.required = true
+        xml.required = false
+    }
+}
+
+spotless {
+    java {
+        targetExclude 'src/*/java/module-info.java'
+        googleJavaFormat()
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+}
+
+// The NVD key is optional. Without one, the check uses the local NVD cache and warns.
+def nvdKey = providers.environmentVariable('NVD_API_KEY')
+    .orElse(providers.gradleProperty('nvd.apiKey')).orNull
+
+dependencyCheck {
+    failBuildOnCVSS = 7
+    if (nvdKey) {
+        nvd { apiKey = nvdKey }
+    } else {
+        autoUpdate = false
+    }
+}
+
+tasks.named('dependencyCheckAnalyze') {
+    doFirst {
+        if (!nvdKey) {
+            logger.warn('NVD_API_KEY is not set: using the local NVD cache without a live update.')
+        }
+    }
+}
+
+tasks.withType(Javadoc).configureEach {
+    options {
+        encoding = 'UTF-8'
+        links "https://docs.oracle.com/en/java/javase/${libs.versions.java.get()}/docs/api/"
+        addBooleanOption('html5', true)
+        // Standard JDK documentation tags are not registered for non-JDK code by default
+        tags(
+                'apiNote:a:API Note:',
+                'implSpec:a:Implementation Requirements:',
+                'implNote:a:Implementation Note:'
+        )
+    }
+}
+// shared:end build
+
+dependencies {
     implementation libs.bundles.spring.boot.core
     implementation libs.spring.kafka
     implementation libs.resilience4j.spring.boot
@@ -123,55 +183,3 @@ testing {
     }
 }
 
-tasks.named('jacocoTestReport') {
-    dependsOn tasks.named('test')
-    reports {
-        html.required = true
-        xml.required = false
-    }
-}
-
-spotless {
-    java {
-        targetExclude 'src/*/java/module-info.java'
-        googleJavaFormat()
-        removeUnusedImports()
-        trimTrailingWhitespace()
-        endWithNewline()
-    }
-}
-
-// The NVD key is optional. Without one, the check uses the local NVD cache and warns.
-def nvdKey = providers.environmentVariable('NVD_API_KEY')
-    .orElse(providers.gradleProperty('nvd.apiKey')).orNull
-
-dependencyCheck {
-    failBuildOnCVSS = 7
-    if (nvdKey) {
-        nvd { apiKey = nvdKey }
-    } else {
-        autoUpdate = false
-    }
-}
-
-tasks.named('dependencyCheckAnalyze') {
-    doFirst {
-        if (!nvdKey) {
-            logger.warn('NVD_API_KEY is not set: using the local NVD cache without a live update.')
-        }
-    }
-}
-
-tasks.withType(Javadoc).configureEach {
-    options {
-        encoding = 'UTF-8'
-        links "https://docs.oracle.com/en/java/javase/${libs.versions.java.get()}/docs/api/"
-        addBooleanOption('html5', true)
-        // Standard JDK documentation tags are not registered for non-JDK code by default
-        tags(
-                'apiNote:a:API Note:',
-                'implSpec:a:Implementation Requirements:',
-                'implNote:a:Implementation Note:'
-        )
-    }
-}
