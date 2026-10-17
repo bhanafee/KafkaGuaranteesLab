@@ -40,7 +40,7 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 
 **Producer side** (`producer/`):
 - `KafkaConfig` sets `acks=all`, idempotence enabled, unlimited retries — Kafka-level at-least-once.
-- `LanguagePreferenceProducer` wraps `KafkaTemplate.send()` with Resilience4j `@Retry` + `@CircuitBreaker` (instance name `languagePreferenceProducer`). The circuit breaker's `fallbackMethod` logs and drops to a dead-letter store when open.
+- `LanguagePreferenceProducer` wraps `KafkaTemplate.send()` with Resilience4j `@Retry` + `@CircuitBreaker` (instance name `languagePreferenceProducer`). When the circuit is open, the `fallbackMethod` (`publishFallback`) logs a warning and returns a failed future. It does not write to a dead-letter store.
 - `LanguagePreferenceController` exposes `POST /language-preferences` and returns 202 Accepted immediately (fire-and-forget to the producer).
 
 **Consumer side** (`consumer/`):
