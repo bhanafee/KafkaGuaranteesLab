@@ -17,13 +17,15 @@ plugins {
 group = 'com.maybeitssquid'
 version = '0.0.1-SNAPSHOT'
 
+// shared:begin java
 java {
-    // shared:begin toolchain
     toolchain {
         languageVersion = JavaLanguageVersion.of(libs.versions.java.get())
     }
-    // shared:end toolchain
+    withSourcesJar()
+    withJavadocJar()
 }
+// shared:end java
 
 // shared:begin release-option
 tasks.withType(JavaCompile).configureEach {
