@@ -141,8 +141,25 @@ spotless {
     }
 }
 
+// The NVD key is optional. Without one, the check uses the local NVD cache and warns.
+def nvdKey = providers.environmentVariable('NVD_API_KEY')
+    .orElse(providers.gradleProperty('nvd.apiKey')).orNull
+
 dependencyCheck {
     failBuildOnCVSS = 7
+    if (nvdKey) {
+        nvd { apiKey = nvdKey }
+    } else {
+        autoUpdate = false
+    }
+}
+
+tasks.named('dependencyCheckAnalyze') {
+    doFirst {
+        if (!nvdKey) {
+            logger.warn('NVD_API_KEY is not set: using the local NVD cache without a live update.')
+        }
+    }
 }
 
 tasks.withType(Javadoc).configureEach {
