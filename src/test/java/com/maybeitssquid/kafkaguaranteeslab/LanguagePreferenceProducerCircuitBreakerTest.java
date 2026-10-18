@@ -19,12 +19,16 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -46,6 +50,7 @@ class LanguagePreferenceProducerCircuitBreakerTest {
 
   private static final String CIRCUIT_BREAKER = "languagePreferenceProducer";
   private static final int MAX_PUBLISHES = 100;
+  private static final int HALF_OPEN_PROBES = 3;
 
   @Autowired private LanguagePreferenceProducer producer;
   @Autowired private CircuitBreakerRegistry circuitBreakerRegistry;
@@ -53,6 +58,23 @@ class LanguagePreferenceProducerCircuitBreakerTest {
   @MockitoBean private KafkaTemplate<String, LanguagePreference> kafkaTemplate;
 
   private CircuitBreaker circuitBreaker;
+
+  private void openCircuit(LanguagePreference event) {
+    int publishes = 0;
+    while (circuitBreaker.getState() != CircuitBreaker.State.OPEN && publishes < MAX_PUBLISHES) {
+      producer.publish(event);
+      publishes++;
+    }
+    assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+  }
+
+  private static SendResult<String, LanguagePreference> sendResult(LanguagePreference event) {
+    var record = new ProducerRecord<>(LanguagePreferenceProducer.TOPIC, event.customerId(), event);
+    var metadata =
+        new RecordMetadata(
+            new TopicPartition(LanguagePreferenceProducer.TOPIC, 0), 0L, 0, 0L, 0, 0);
+    return new SendResult<>(record, metadata);
+  }
 
   @BeforeEach
   void resetCircuitBreaker() {
@@ -67,12 +89,7 @@ class LanguagePreferenceProducerCircuitBreakerTest {
         .thenThrow(new IllegalStateException("broker unavailable"));
 
     var event = new LanguagePreference("cust-1", Locale.FRENCH);
-    int publishes = 0;
-    while (circuitBreaker.getState() != CircuitBreaker.State.OPEN && publishes < MAX_PUBLISHES) {
-      producer.publish(event);
-      publishes++;
-    }
-    assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+    openCircuit(event);
 
     clearInvocations(kafkaTemplate);
     var future = producer.publish(event);
@@ -80,6 +97,24 @@ class LanguagePreferenceProducerCircuitBreakerTest {
     assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
         .hasCauseInstanceOf(CallNotPermittedException.class);
     verify(kafkaTemplate, never()).send(eq(LanguagePreferenceProducer.TOPIC), anyString(), any());
+  }
+
+  @Test
+  void openCircuit_closesAgain_whenHalfOpenProbesSucceed() throws Exception {
+    when(kafkaTemplate.send(eq(LanguagePreferenceProducer.TOPIC), anyString(), any()))
+        .thenThrow(new IllegalStateException("broker unavailable"));
+    var event = new LanguagePreference("cust-1", Locale.FRENCH);
+    openCircuit(event);
+
+    // The broker recovers. Moving to half-open directly avoids waiting on the open-state timer.
+    when(kafkaTemplate.send(eq(LanguagePreferenceProducer.TOPIC), anyString(), any()))
+        .thenReturn(CompletableFuture.completedFuture(sendResult(event)));
+    circuitBreaker.transitionToHalfOpenState();
+
+    for (int i = 0; i < HALF_OPEN_PROBES; i++) {
+      producer.publish(event).get(5, TimeUnit.SECONDS);
+    }
+    assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
   }
 
   @Test
