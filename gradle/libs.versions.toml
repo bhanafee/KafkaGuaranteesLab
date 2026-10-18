@@ -17,7 +17,7 @@ spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-start
 spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
 spring-boot-starter-aspectj = { module = "org.springframework.boot:spring-boot-starter-aspectj" }
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
-spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
+spring-boot-starter-kafka = { module = "org.springframework.boot:spring-boot-starter-kafka" }
 spring-kafka-test = { module = "org.springframework.kafka:spring-kafka-test" }
 resilience4j-spring-boot = { module = "io.github.resilience4j:resilience4j-spring-boot4", version.ref = "resilience4j" }
 resilience4j-test = { module = "io.github.resilience4j:resilience4j-test", version.ref = "resilience4j" }

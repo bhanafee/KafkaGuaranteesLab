@@ -110,7 +110,7 @@ tasks.withType(Javadoc).configureEach {
 
 dependencies {
     implementation libs.bundles.spring.boot.core
-    implementation libs.spring.kafka
+    implementation libs.spring.boot.starter.kafka
     implementation libs.resilience4j.spring.boot
     implementation libs.micrometer.prometheus
 }
