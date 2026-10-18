@@ -1,5 +1,6 @@
 package com.maybeitssquid.kafkaguaranteeslab;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -19,6 +20,7 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -66,6 +68,28 @@ class LanguagePreferenceConsumerRedeliveryTest {
 
     awaitUntil(() -> committedOffset() == 1, Duration.ofSeconds(10));
     verify(consumer, times(2)).process(any());
+  }
+
+  @Test
+  void redelivery_passesTheSamePayloadToEveryAttempt() throws Exception {
+    var calls = new AtomicInteger();
+    doAnswer(
+            invocation -> {
+              if (calls.incrementAndGet() == 1) {
+                throw new IllegalStateException("downstream unavailable");
+              }
+              return invocation.callRealMethod();
+            })
+        .when(consumer)
+        .process(any());
+
+    var published = new LanguagePreference("cust-1", Locale.FRENCH);
+    producer.publish(published).get(5, TimeUnit.SECONDS);
+
+    awaitUntil(() -> committedOffset() == 1, Duration.ofSeconds(10));
+    var received = ArgumentCaptor.forClass(LanguagePreference.class);
+    verify(consumer, times(2)).process(received.capture());
+    assertThat(received.getAllValues()).containsExactly(published, published);
   }
 
   private long committedOffset() throws Exception {
