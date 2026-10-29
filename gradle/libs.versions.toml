@@ -38,6 +38,9 @@ patch-cve-2026-43512-ws = { module = "org.apache.tomcat.embed:tomcat-embed-webso
 # Security patches - Other
 # jsoup 1.23.2 fixes CVE-2026-75140; supersedes the 1.23.1 pin for GHSA-dcmj-56c4-q8dh.
 patch-cve-2026-75140 = { module = "org.jsoup:jsoup", version = { strictly = "[1.23.2,)", prefer = "1.23.2" } }
+# guava 33.7.2-jre fixes CVE-2026-102554 (GHSA-xxph-c9ww-hj94): uncontrolled memory allocation on deserialization.
+# The -jre suffix is part of the Maven version; without it the constraint matches no artifact.
+patch-cve-2026-102554 = { module = "com.google.guava:guava", version = { strictly = "[33.7.2-jre,)", prefer = "33.7.2-jre" } }
 # jackson 2.22.3: core fixes CVE-2026-89407 and CVE-2026-89425; databind fixes CVE-2026-91776,
 # CVE-2026-91777, CVE-2026-68497, CVE-2026-83557 and CVE-2026-19032. Supersedes the 2.22.1 pins
 # for GHSA-72hv-8253-57qq, GHSA-5jmj-h7xm-6q6v and CVE-2026-54515.
@@ -62,7 +65,7 @@ patch-cve-2026-106451 = { module = "at.yawk.lz4:lz4-java", version = { strictly 
 
 [bundles]
 spring-boot-core = ["spring-boot-starter-web", "spring-boot-starter-actuator", "spring-boot-starter-aspectj"]
-security-patches = ["patch-cve-2025-48734", "patch-cve-2026-106451", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-49844-log4j-to-slf4j", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-71290", "patch-cve-2026-75140", "patch-cve-2026-89407", "patch-cve-2026-89407-tools-jackson-core", "patch-cve-2026-91776", "patch-cve-2026-91776-tools-jackson-databind"]
+security-patches = ["patch-cve-2025-48734", "patch-cve-2026-106451", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-49844-log4j-to-slf4j", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-71290", "patch-cve-2026-75140", "patch-cve-2026-89407", "patch-cve-2026-89407-tools-jackson-core", "patch-cve-2026-91776", "patch-cve-2026-91776-tools-jackson-databind", "patch-cve-2026-102554"]
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
