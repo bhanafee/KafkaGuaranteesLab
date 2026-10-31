@@ -4,7 +4,7 @@ java = "25"
 release = "17"
 
 # Plugin versions
-spring-boot = "4.1.1"
+spring-boot = "4.1.2"
 spring-dependency-management = "1.1.7"
 spotless = "8.+"
 owasp-dependencycheck = "13.+"
