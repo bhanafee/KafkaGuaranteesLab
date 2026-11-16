@@ -29,18 +29,17 @@ public class LanguagePreferenceProducer {
     log.info("Publishing event: customerId={}", event.customerId());
     return kafkaTemplate
         .send(TOPIC, event.customerId(), event)
-        .whenComplete(
-            (result, ex) -> {
-              if (ex != null) {
-                log.error("Failed to publish event: customerId={}", event.customerId(), ex);
-              } else {
-                log.info(
-                    "Published event: customerId={} partition={} offset={}",
-                    event.customerId(),
-                    result.getRecordMetadata().partition(),
-                    result.getRecordMetadata().offset());
-              }
-            });
+        .whenComplete((result, ex) -> {
+          if (ex != null) {
+            log.error("Failed to publish event: customerId={}", event.customerId(), ex);
+          } else {
+            log.info(
+                "Published event: customerId={} partition={} offset={}",
+                event.customerId(),
+                result.getRecordMetadata().partition(),
+                result.getRecordMetadata().offset());
+          }
+        });
   }
 
   // Called by Resilience4j when the circuit is open
