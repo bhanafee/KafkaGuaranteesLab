@@ -89,6 +89,20 @@ public class KafkaConfig {
 
   // ── Consumer ────────────────────────────────────────────────────────────
 
+  /**
+   * Builds the consumer factory with manual commit and an error-handling value deserializer.
+   *
+   * <p>The key deserializer is not wrapped, because {@link StringDeserializer} never fails on the
+   * record's bytes. It decodes with {@link String#String(byte[], java.nio.charset.Charset)}, which
+   * replaces every malformed or unmappable byte sequence with the replacement character U+FFFD. A
+   * corrupt key therefore arrives as a garbled string and is not dead-lettered. The decoding is
+   * also lossy: two different corrupt keys can decode to the same string. The broker still treats
+   * them as different keys, because it partitions and compacts on the raw bytes.
+   *
+   * <p>This is harmless here, where the key is only logged. A consumer that uses the key for a
+   * lookup or a write needs a key deserializer that rejects malformed input, wrapped in {@link
+   * ErrorHandlingDeserializer} like the value.
+   */
   @Bean
   public ConsumerFactory<String, LanguagePreference> consumerFactory() {
     Map<String, Object> props = new HashMap<>();
