@@ -17,6 +17,7 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 import org.springframework.util.backoff.FixedBackOff;
@@ -88,13 +89,31 @@ public class KafkaConfig {
 
   // ── Consumer ────────────────────────────────────────────────────────────
 
+  /**
+   * Builds the consumer factory with manual commit and an error-handling value deserializer.
+   *
+   * <p>The key deserializer is not wrapped, because {@link StringDeserializer} never fails on the
+   * record's bytes. It decodes with {@link String#String(byte[], java.nio.charset.Charset)}, which
+   * replaces every malformed or unmappable byte sequence with the replacement character U+FFFD. A
+   * corrupt key therefore arrives as a garbled string and is not dead-lettered. The decoding is
+   * also lossy: two different corrupt keys can decode to the same string. The broker still treats
+   * them as different keys, because it partitions and compacts on the raw bytes.
+   *
+   * <p>This is harmless here, where the key is only logged. A consumer that uses the key for a
+   * lookup or a write needs a key deserializer that rejects malformed input, wrapped in {@link
+   * ErrorHandlingDeserializer} like the value.
+   */
   @Bean
   public ConsumerFactory<String, LanguagePreference> consumerFactory() {
     Map<String, Object> props = new HashMap<>();
     props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
     props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
     props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-    props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JacksonJsonDeserializer.class);
+    // A payload that cannot be deserialized must not fail inside poll(), where no record is
+    // available to the error handler. ErrorHandlingDeserializer catches the failure and hands the
+    // record on, so it gets a dead-letter pointer like any other failed record.
+    props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
+    props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JacksonJsonDeserializer.class);
     // Disable auto-commit for manual acknowledgment (at-least-once)
     props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
     props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
