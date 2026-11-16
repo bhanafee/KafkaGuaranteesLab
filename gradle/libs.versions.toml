@@ -66,9 +66,12 @@ patch-cve-2026-49844-log4j-to-slf4j = { module = "org.apache.logging.log4j:log4j
 # Security patches - LZ4 (1.11.4: CVE-2026-106451 also covers CVE-2026-106449/106450/106452/106453 and CVE-2026-59949)
 patch-cve-2026-106451 = { module = "at.yawk.lz4:lz4-java", version = { strictly = "[1.11.4,)", prefer = "1.11.4" } }
 
+# org.json 20260719 fixes CVE-2026-59171 (GHSA-ghc9-756g-vrcv): unbounded numeric-literal DoS. Buildscript classpath via settings.gradle.
+patch-cve-2026-59171 = { module = "org.json:json", version = { strictly = "[20260719,)", prefer = "20260719" } }
+
 [bundles]
 spring-boot-core = ["spring-boot-starter-web", "spring-boot-starter-actuator", "spring-boot-starter-aspectj"]
-security-patches = ["patch-cve-2025-48734", "patch-cve-2026-106451", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-49844-log4j-to-slf4j", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-71290", "patch-cve-2026-75140", "patch-cve-2026-89407", "patch-cve-2026-89407-tools-jackson-core", "patch-cve-2026-91776", "patch-cve-2026-91776-tools-jackson-databind", "patch-cve-2026-102554", "patch-cve-2026-93451"]
+security-patches = ["patch-cve-2026-59171", "patch-cve-2025-48734", "patch-cve-2026-106451", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-49844-log4j-to-slf4j", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-71290", "patch-cve-2026-75140", "patch-cve-2026-89407", "patch-cve-2026-89407-tools-jackson-core", "patch-cve-2026-91776", "patch-cve-2026-91776-tools-jackson-databind", "patch-cve-2026-102554", "patch-cve-2026-93451"]
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
