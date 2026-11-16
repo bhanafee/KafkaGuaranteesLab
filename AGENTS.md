@@ -50,6 +50,7 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 - `DeadLetterPointerRecoverer` writes a `DeadLetterPointer` (source topic, partition, offset, timestamp, consumer group, exception class and message) to the shared `dead-letters` topic. It does not copy the payload. It blocks until the broker acknowledges the pointer and throws if the write fails, so the record is redelivered rather than skipped. `setCommitRecovered(true)` commits the offset after the pointer is written.
 - Records that fail deserialization are not dead-lettered: the consumer does not use `ErrorHandlingDeserializer`.
 - `process()` carries its own `@Retry` + `@CircuitBreaker` (instance name `languagePreferenceConsumer`) for any downstream call added there.
+- A record with a null value (a tombstone) is acknowledged and skipped. It is not processed and not dead-lettered.
 
 **Resilience4j config** lives in `application.yml` under `resilience4j.circuitbreaker` and `resilience4j.retry`. Both producer and consumer have named instances.
 
