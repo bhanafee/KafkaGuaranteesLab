@@ -118,10 +118,14 @@ messages if the same event is published by multiple instances.
 - **Application-layer retry**: Resilience4j `@Retry` on both producer and consumer handles transient
   downstream failures (3 attempts, 1 s wait each)
 - **Circuit breaker isolation**: independent Resilience4j `@CircuitBreaker` instances protect
-  against cascading failure; the producer fallback routes to a dead-letter store when the circuit
-  opens
-- **Dead-letter topic (DLT)**: messages that exhaust `DefaultErrorHandler` retries on the consumer
-  side are routed to `language-preferences.DLT` rather than silently dropped
+  against cascading failure; while the producer circuit is open, publishes fail fast
+- **Failure surfaced to the caller**: the HTTP endpoint responds 202 only after the broker
+  acknowledges the event, and 503 when the publish fails. The producer keeps no dead-letter store
+  (see [Why the producer has no dead-letter store](#why-the-producer-has-no-dead-letter-store))
+- **Dead-letter pointers**: a message that exhausts `DefaultErrorHandler` retries on the consumer
+  side is not silently dropped. A pointer to it (topic, partition, offset) is written to the shared
+  `dead-letters` topic. The message itself is not copied
+  (see [Dead-letter pointers](#dead-letter-pointers))
 - **Observability**: Actuator exposes `health`, `circuitbreakers`, `retries`, and `prometheus`
   endpoints; circuit breaker state is surfaced in the health check
 
@@ -150,7 +154,14 @@ Send a language preference event:
 curl -X POST http://localhost:8080/language-preferences \
   -H 'Content-Type: application/json' \
   -d '{"customerId": "abc123", "preferredLanguage": "fr-CA"}'
-# HTTP 202 Accepted
+# HTTP 202 Accepted once the broker acknowledges the event
+# HTTP 503 Service Unavailable if the publish fails
+```
+
+Read the dead-letter pointers, if any:
+
+```bash
+kafka-console-consumer --bootstrap-server localhost:9092 --topic dead-letters --from-beginning
 ```
 
 Check circuit breaker and retry state:
@@ -180,29 +191,33 @@ flowchart TD
         CTRL["POST /language-preferences<br/>LanguagePreferenceController"]
         PROD["LanguagePreferenceProducer<br/>@Retry + @CircuitBreaker"]
         KT["KafkaTemplate.send()<br/>acks=all · idempotent · unlimited retries"]
-        DLS["Dead-letter store<br/>(circuit breaker fallback)"]
+        FAIL["503 Service Unavailable"]
 
-        CTRL -->|"202 Accepted<br/>(fire and forget)"| PROD
+        CTRL -->|"waits for the outcome"| PROD
         PROD --> KT
-        PROD -->|"circuit open"| DLS
+        PROD -->|"retries exhausted<br/>or circuit open"| FAIL
     end
 
     subgraph Kafka["Kafka"]
         TOPIC["language-preferences"]
-        DLT["language-preferences.DLT"]
+        DLT["dead-letters<br/>(pointers, shared by all topics)"]
     end
 
     subgraph Consumer["Consumer side"]
         CONS["LanguagePreferenceConsumer.onMessage()<br/>AckMode.MANUAL_IMMEDIATE"]
         PROC["process()<br/>@Retry + @CircuitBreaker"]
         ACK["ack.acknowledge()<br/>commit offset"]
-        EH["DefaultErrorHandler<br/>FixedBackOff 1 s · 2 attempts"]
+        EH["DefaultErrorHandler<br/>FixedBackOff 1 s · 2 redeliveries"]
+        REC["DeadLetterPointerRecoverer"]
 
         CONS --> PROC
         PROC --> ACK
         CONS -->|"exception → rethrow<br/>(no ack)"| EH
-        EH -->|"retries exhausted"| DLT
+        EH -->|"retries exhausted"| REC
+        REC -->|"pointer acked"| ACK
     end
+
+    REC -->|"topic · partition · offset"| DLT
 
     KT --> TOPIC
     TOPIC --> CONS
@@ -221,9 +236,10 @@ sequenceDiagram
 
     Client->>Ctrl: POST /language-preferences
     Ctrl->>Prod: publish(event)
-    Ctrl-->>Client: 202 Accepted
     Prod->>K: send(key=customerId, acks=all)
     K-->>Prod: broker ack
+    Prod-->>Ctrl: future completes
+    Ctrl-->>Client: 202 Accepted
     K->>Cons: onMessage(record)
     Cons->>Proc: process(event)
     Proc-->>Cons: success
@@ -231,28 +247,117 @@ sequenceDiagram
     Note over K: offset committed
 ```
 
-### Sequence: consumer failure and DLT routing
+### Sequence: consumer failure and dead-letter pointer
 
 ```mermaid
 sequenceDiagram
-    participant K as Kafka
+    participant K as Kafka (language-preferences)
     participant Cons as LanguagePreferenceConsumer
     participant Proc as process()
     participant EH as DefaultErrorHandler
-    participant DLT as language-preferences.DLT
+    participant Rec as DeadLetterPointerRecoverer
+    participant DLT as Kafka (dead-letters)
 
-    K->>Cons: onMessage(record) [attempt 1]
+    K->>Cons: onMessage(record) [delivery 1]
     Cons->>Proc: process(event)
     Proc-->>Cons: throws exception
     Cons->>EH: rethrow (no ack)
-    Note over EH: FixedBackOff — wait 1 s, retry
-    EH->>Cons: onMessage(record) [attempt 2]
-    Cons->>Proc: process(event)
-    Proc-->>Cons: throws again
+    Note over EH: FixedBackOff — wait 1 s, redeliver
+    EH->>Cons: onMessage(record) [delivery 2]
+    Cons->>EH: rethrow (no ack)
+    Note over EH: FixedBackOff — wait 1 s, redeliver
+    EH->>Cons: onMessage(record) [delivery 3]
     Cons->>EH: rethrow (no ack)
     Note over EH: retries exhausted
-    EH->>DLT: route to dead-letter topic
+    EH->>Rec: accept(record, consumer, exception)
+    Rec->>DLT: send(pointer: topic, partition, offset)
+    DLT-->>Rec: broker ack
+    Rec-->>EH: recovered
+    EH->>K: commit offset + 1
+    Note over K: the record stays in language-preferences
 ```
+
+### Dead-letter pointers
+
+A conventional dead-letter topic holds a full copy of each failed record, usually in one topic per
+source topic. This demo keeps one shared `dead-letters` topic and writes only a pointer to the
+failed record:
+
+```json
+{
+  "topic": "language-preferences",
+  "partition": 0,
+  "offset": 42,
+  "timestamp": 1794856800000,
+  "consumerGroup": "kafka-guarantees-lab-group",
+  "exceptionClass": "java.lang.IllegalStateException",
+  "exceptionMessage": "downstream unavailable"
+}
+```
+
+The pointer never reads the payload, so the same recoverer and the same topic work for any source
+topic and any payload type. Customer data is not duplicated into a second topic with its own
+retention and access rules.
+
+#### Wiring
+
+- `KafkaConfig.kafkaListenerContainerFactory()` builds the `DefaultErrorHandler` with two
+  arguments: the `DeadLetterPointerRecoverer` and the `FixedBackOff`. The error handler redelivers
+  a failed record until the backoff is exhausted, then calls the recoverer.
+- `DeadLetterPointerRecoverer` implements Spring Kafka's `ConsumerAwareRecordRecoverer`. It gets
+  the failed `ConsumerRecord`, the `Consumer` and the exception. It reads the coordinates from the
+  record, the group from the consumer and the root cause from the exception.
+- The pointer is sent through its own `KafkaTemplate<String, DeadLetterPointer>`, built from the
+  same producer settings as the events (`acks=all`, idempotent). The key is
+  `<source topic>-<source partition>`, so pointers into one source partition stay in offset order.
+- The recoverer blocks on the send for up to `spring.kafka.consumer.dead-letter.send-timeout-ms`.
+  If the send fails or times out, the recoverer throws. `DefaultErrorHandler` treats that as a
+  failed recovery and redelivers the source record with a fresh set of retries.
+- `setCommitRecovered(true)` makes the error handler commit the offset after a successful
+  recovery. With a manual ack mode the container does not do this on its own.
+
+The order is therefore always: pointer acknowledged, then offset committed. A crash between the
+two redelivers the record, never loses it.
+
+#### Catches
+
+- **A pointer expires with its source.** Once retention or compaction removes the original
+  record, the pointer dangles. The retention of the source topic is the deadline for dealing with
+  its dead letters. On a compacted topic, a newer record with the same key removes the failed one.
+- **Replay needs a seek.** A tool that reprocesses dead letters cannot simply consume
+  `dead-letters`. For each pointer it must assign the source partition, seek to the offset and
+  read one record. `LanguagePreferenceConsumerDeadLetterTest.readSource()` shows this.
+- **Pointers can be duplicated.** A pointer send that times out may still succeed, and the record
+  is then redelivered and dead-lettered again. Pointers are at-least-once, like everything else
+  here. Treat (topic, partition, offset) as the identity of a dead letter.
+- **A failing pointer write blocks the partition.** While `dead-letters` cannot be written, the
+  failed record is redelivered indefinitely and nothing behind it in the partition is consumed.
+  This is the price of never skipping a record without a pointer.
+- **Records that cannot be deserialized are not covered.** The consumer does not use
+  `ErrorHandlingDeserializer`, so a record with an unreadable payload fails inside `poll()`
+  and is never handed to the recoverer.
+- **The exception message is copied.** Keep payload data out of exception messages, or the
+  pointer carries it after all.
+- **The topic must exist.** `kafka-local.sh` creates `dead-letters`. Elsewhere, create it or rely
+  on broker topic auto-creation.
+
+### Why the producer has no dead-letter store
+
+A dead-letter topic on the producer side would sit on the same Kafka cluster as the main topic.
+When publishes fail because the cluster is unreachable, a write to a dead-letter topic fails for
+the same reason. It could only help with failures specific to one record or one topic, such as an
+oversized record or a missing topic.
+
+So the producer stores nothing and reports the failure. `LanguagePreferenceController` waits for
+the publish outcome and responds 503 Service Unavailable when the publish fails after its retries
+or the circuit is open. The caller still holds the event and decides whether to retry.
+
+- A 503 does not prove the event was not written. If the outcome is not known before the Spring
+  MVC async request timeout, the response is also 503 while the send is still in progress. A
+  caller that retries can then publish a duplicate. This is the
+  [Timeout and Retry](#timeout-and-retry) failure mode, one tier up.
+- A system that must accept events while Kafka is down needs a durable store outside Kafka, such
+  as a transactional outbox. That is outside this demo.
 
 ## Configuration reference
 
@@ -294,9 +399,17 @@ Both instances: 3 attempts, 1 s fixed wait, retries on any `Exception`.
 
 ### DefaultErrorHandler
 
-`FixedBackOff(1 s, 2 attempts)` — up to 2 delivery retries before the message is routed to the
-dead-letter topic. This operates at the Kafka listener container layer, independently of the
-Resilience4j retry inside `process()`.
+`FixedBackOff(1 s, 2 attempts)` — up to 2 redeliveries (3 deliveries in total) before a pointer to
+the message is written to the dead-letter topic. This operates at the Kafka listener container
+layer, independently of the Resilience4j retry inside `process()`.
+
+| Setting | Value | Purpose |
+|---|---|---|
+| `spring.kafka.consumer.retry.interval-ms` | `1000` | Wait between redeliveries |
+| `spring.kafka.consumer.retry.max-attempts` | `2` | Redeliveries after the first delivery |
+| `spring.kafka.consumer.dead-letter.topic` | `dead-letters` | Shared topic for dead-letter pointers |
+| `spring.kafka.consumer.dead-letter.send-timeout-ms` | `10000` | How long the recoverer waits for the pointer to be acknowledged |
+| `commitRecovered` | `true` | Commit the offset once the pointer is written |
 
 ## Layout
 
@@ -312,11 +425,13 @@ treeView-beta
                 "config"
                     "KafkaConfig.java"
                 "consumer"
+                    "DeadLetterPointerRecoverer.java"
                     "LanguagePreferenceConsumer.java"
                 "producer"
                     "LanguagePreferenceProducer.java"
                     "LanguagePreferenceController.java"
                 "model"
+                    "DeadLetterPointer.java"
                     "LanguagePreference.java"
 ```
 

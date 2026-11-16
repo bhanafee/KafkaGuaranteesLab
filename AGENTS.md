@@ -33,6 +33,7 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 - **`LanguagePreferenceController`** — HTTP endpoint (`POST /language-preferences`) for publishing events
 - **`LanguagePreferenceProducer`** — sends events to Kafka with retry/circuit-breaker protection
 - **`LanguagePreferenceConsumer`** — consumes events from Kafka and processes them
+- **`DeadLetterPointerRecoverer`** — writes a pointer to a record that exhausted its retries to the `dead-letters` topic
 
 ## Architecture
 
@@ -40,12 +41,14 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 
 **Producer side** (`producer/`):
 - `KafkaConfig` sets `acks=all`, idempotence enabled, unlimited retries — Kafka-level at-least-once.
-- `LanguagePreferenceProducer` wraps `KafkaTemplate.send()` with Resilience4j `@Retry` + `@CircuitBreaker` (instance name `languagePreferenceProducer`). When the circuit is open, the `fallbackMethod` (`publishFallback`) logs a warning and returns a failed future. It does not write to a dead-letter store.
-- `LanguagePreferenceController` exposes `POST /language-preferences` and returns 202 Accepted immediately (fire-and-forget to the producer).
+- `LanguagePreferenceProducer` wraps `KafkaTemplate.send()` with Resilience4j `@Retry` + `@CircuitBreaker` (instance name `languagePreferenceProducer`). The `fallbackMethod` (`publishFallback`) runs for every failed attempt and for every call rejected while the circuit is open. It logs a warning and returns a failed future. There is no producer dead-letter store: one on the same cluster would fail along with the main topic.
+- `LanguagePreferenceController` exposes `POST /language-preferences` and waits for the publish outcome. It returns 202 Accepted once the broker acknowledges the event, and 503 Service Unavailable when the publish fails.
 
 **Consumer side** (`consumer/`):
-- `KafkaConfig` disables auto-commit (`enable.auto.commit=false`) and sets `AckMode.MANUAL_IMMEDIATE` — offset is committed only after `process()` succeeds.
-- `LanguagePreferenceConsumer.onMessage()` calls `process()`, then `ack.acknowledge()`. On exception it rethrows without acking; `DefaultErrorHandler` (fixed backoff from `application.yml`) retries, then routes to the dead-letter topic (DLT).
+- `KafkaConfig` disables auto-commit (`enable.auto.commit=false`) and sets `AckMode.MANUAL_IMMEDIATE` — offset is committed only after `process()` succeeds or a dead-letter pointer is written.
+- `LanguagePreferenceConsumer.onMessage()` calls `process()`, then `ack.acknowledge()`. On exception it rethrows without acking; `DefaultErrorHandler` (fixed backoff from `application.yml`) redelivers, then calls `DeadLetterPointerRecoverer`.
+- `DeadLetterPointerRecoverer` writes a `DeadLetterPointer` (source topic, partition, offset, timestamp, consumer group, exception class and message) to the shared `dead-letters` topic. It does not copy the payload. It blocks until the broker acknowledges the pointer and throws if the write fails, so the record is redelivered rather than skipped. `setCommitRecovered(true)` commits the offset after the pointer is written.
+- Records that fail deserialization are not dead-lettered: the consumer does not use `ErrorHandlingDeserializer`.
 - `process()` carries its own `@Retry` + `@CircuitBreaker` (instance name `languagePreferenceConsumer`) for any downstream call added there.
 
 **Resilience4j config** lives in `application.yml` under `resilience4j.circuitbreaker` and `resilience4j.retry`. Both producer and consumer have named instances.

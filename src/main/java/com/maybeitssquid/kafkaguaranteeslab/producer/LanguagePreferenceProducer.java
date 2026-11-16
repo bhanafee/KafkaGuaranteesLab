@@ -42,11 +42,12 @@ public class LanguagePreferenceProducer {
         });
   }
 
-  // Called by Resilience4j when the circuit is open
+  // Called by Resilience4j for every failed attempt, and for every call rejected while the circuit
+  // is open. The event is not stored anywhere: the failed future tells the caller it was not sent.
   public CompletableFuture<SendResult<String, LanguagePreference>> publishFallback(
       LanguagePreference event, Throwable t) {
     log.warn(
-        "Circuit open — dropping event to dead-letter store: customerId={} reason={}",
+        "Publish attempt failed — event not sent: customerId={} reason={}",
         event.customerId(),
         t.getMessage());
     return CompletableFuture.failedFuture(t);
