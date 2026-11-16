@@ -5,6 +5,7 @@ CONTAINER=at-least-once-kafka
 IMAGE=apache/kafka:3.9.0
 PORT=9092
 TOPIC=language-preferences
+DEAD_LETTER_TOPIC=dead-letters
 
 usage() {
     echo "Usage: $0 {start|stop|status}"
@@ -55,15 +56,17 @@ case "$cmd" in
         fi
     done
 
-    echo "Creating topic '${TOPIC}' ..."
-    docker exec "$CONTAINER" \
-        /opt/kafka/bin/kafka-topics.sh \
-        --bootstrap-server "localhost:${PORT}" \
-        --create \
-        --if-not-exists \
-        --topic "$TOPIC" \
-        --partitions 3 \
-        --replication-factor 1
+    for topic in "$TOPIC" "$DEAD_LETTER_TOPIC"; do
+        echo "Creating topic '${topic}' ..."
+        docker exec "$CONTAINER" \
+            /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server "localhost:${PORT}" \
+            --create \
+            --if-not-exists \
+            --topic "$topic" \
+            --partitions 3 \
+            --replication-factor 1
+    done
 
     echo "Done. Bootstrap server: localhost:${PORT}"
     ;;

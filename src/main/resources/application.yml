@@ -6,6 +6,9 @@ spring:
       retry:
         interval-ms: 1000
         max-attempts: 2
+      dead-letter:
+        topic: dead-letters
+        send-timeout-ms: 10000
 
 management:
   endpoints:

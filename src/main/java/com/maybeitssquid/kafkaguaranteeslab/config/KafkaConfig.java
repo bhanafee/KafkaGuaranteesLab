@@ -1,6 +1,9 @@
 package com.maybeitssquid.kafkaguaranteeslab.config;
 
+import com.maybeitssquid.kafkaguaranteeslab.consumer.DeadLetterPointerRecoverer;
+import com.maybeitssquid.kafkaguaranteeslab.model.DeadLetterPointer;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -33,10 +36,15 @@ public class KafkaConfig {
   @Value("${spring.kafka.consumer.retry.max-attempts}")
   private long retryMaxAttempts;
 
+  @Value("${spring.kafka.consumer.dead-letter.topic}")
+  private String deadLetterTopic;
+
+  @Value("${spring.kafka.consumer.dead-letter.send-timeout-ms}")
+  private long deadLetterSendTimeoutMs;
+
   // ── Producer ────────────────────────────────────────────────────────────
 
-  @Bean
-  public ProducerFactory<String, LanguagePreference> producerFactory() {
+  private Map<String, Object> producerProps() {
     Map<String, Object> props = new HashMap<>();
     props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
     props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
@@ -46,12 +54,36 @@ public class KafkaConfig {
     props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
     props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
     props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
-    return new DefaultKafkaProducerFactory<>(props);
+    return props;
+  }
+
+  @Bean
+  public ProducerFactory<String, LanguagePreference> producerFactory() {
+    return new DefaultKafkaProducerFactory<>(producerProps());
   }
 
   @Bean
   public KafkaTemplate<String, LanguagePreference> kafkaTemplate() {
     return new KafkaTemplate<>(producerFactory());
+  }
+
+  // ── Dead letters ────────────────────────────────────────────────────────
+
+  // Dead-letter pointers get the same durability settings as the events themselves.
+  @Bean
+  public ProducerFactory<String, DeadLetterPointer> deadLetterProducerFactory() {
+    return new DefaultKafkaProducerFactory<>(producerProps());
+  }
+
+  @Bean
+  public KafkaTemplate<String, DeadLetterPointer> deadLetterKafkaTemplate() {
+    return new KafkaTemplate<>(deadLetterProducerFactory());
+  }
+
+  @Bean
+  public DeadLetterPointerRecoverer deadLetterPointerRecoverer() {
+    return new DeadLetterPointerRecoverer(
+        deadLetterKafkaTemplate(), deadLetterTopic, Duration.ofMillis(deadLetterSendTimeoutMs));
   }
 
   // ── Consumer ────────────────────────────────────────────────────────────
@@ -78,8 +110,16 @@ public class KafkaConfig {
     factory.setConsumerFactory(consumerFactory());
     // Manual acknowledgment — commit only after successful processing
     factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
-    factory.setCommonErrorHandler(
-        new DefaultErrorHandler(new FixedBackOff(retryIntervalMs, retryMaxAttempts)));
+    // Redeliver a failed record with a fixed backoff. When the retries are exhausted, write a
+    // pointer to the record to the dead-letter topic. If that write fails, the recoverer throws and
+    // the record is redelivered, so the record is never skipped without a pointer.
+    var errorHandler =
+        new DefaultErrorHandler(
+            deadLetterPointerRecoverer(), new FixedBackOff(retryIntervalMs, retryMaxAttempts));
+    // With a manual ack mode the container does not commit a recovered record on its own. Without
+    // this, a dead-lettered record at the end of a partition is redelivered after a restart.
+    errorHandler.setCommitRecovered(true);
+    factory.setCommonErrorHandler(errorHandler);
     return factory;
   }
 }

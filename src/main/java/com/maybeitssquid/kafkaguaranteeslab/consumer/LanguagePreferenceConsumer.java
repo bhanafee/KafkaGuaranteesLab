@@ -17,8 +17,8 @@ public class LanguagePreferenceConsumer {
 
   /**
    * Consumes language preference events with manual acknowledgment. The offset is committed only
-   * after process() succeeds, guaranteeing at-least-once delivery. Resilience4j retries wrap the
-   * downstream call.
+   * after process() succeeds, or after a pointer to the failed record is written to the dead-letter
+   * topic, guaranteeing at-least-once delivery. Resilience4j retries wrap the downstream call.
    */
   @KafkaListener(
       topics = "language-preferences",
@@ -39,7 +39,9 @@ public class LanguagePreferenceConsumer {
           "Processing failed — will be retried by error handler: customerId={}",
           event.customerId(),
           ex);
-      // Do NOT ack; DefaultErrorHandler in KafkaConfig will retry then route to DLT
+      // Do NOT ack. DefaultErrorHandler in KafkaConfig redelivers the record. Once its retries are
+      // exhausted, DeadLetterPointerRecoverer writes a pointer to the record (not a copy) to the
+      // shared dead-letter topic, and only then is the offset committed.
       throw ex;
     }
   }
