@@ -113,12 +113,18 @@ messages if the same event is published by multiple instances.
 
 - **`acks=all` with idempotent producer**: `enable.idempotence=true` with unlimited retries ensures
   at least one durable write while preventing duplicates from Kafka-level retries
-- **Manual offset commit**: `AckMode.MANUAL_IMMEDIATE` commits the offset only after `process()`
-  succeeds; a crash before `ack.acknowledge()` causes redelivery, not loss
+- **Manual offset commit**: `AckMode.MANUAL_IMMEDIATE` commits the offset only after
+  `LanguagePreferenceProcessor.process()` returns; a crash before `ack.acknowledge()` causes
+  redelivery, not loss
 - **Tombstones skipped**: a record with a null value carries no preference, so the consumer
   acknowledges it without processing it and without dead-lettering it
 - **Application-layer retry**: Resilience4j `@Retry` on both producer and consumer handles transient
-  downstream failures (3 attempts, 1 s wait each)
+  downstream failures (3 attempts, 1 s wait each). On the consumer side the annotations sit on a
+  separate bean, `LanguagePreferenceProcessor`, because Resilience4j works through the Spring
+  proxy and a call within one object bypasses it
+- **Fallback trade-off**: when consumer processing fails on every retry, the processor's fallback
+  logs the error and does not throw, so the record is acknowledged unprocessed
+  (see [Consumer processing failures](#consumer-processing-failures))
 - **Circuit breaker isolation**: independent Resilience4j `@CircuitBreaker` instances protect
   against cascading failure; while the producer circuit is open, publishes fail fast
 - **Failure surfaced to the caller**: the HTTP endpoint responds 202 only after the broker
@@ -207,7 +213,7 @@ flowchart TD
 
     subgraph Consumer["Consumer side"]
         CONS["LanguagePreferenceConsumer.onMessage()<br/>AckMode.MANUAL_IMMEDIATE"]
-        PROC["process()<br/>@Retry + @CircuitBreaker"]
+        PROC["LanguagePreferenceProcessor.process()<br/>@Retry + @CircuitBreaker + fallback"]
         ACK["ack.acknowledge()<br/>commit offset"]
         EH["DefaultErrorHandler<br/>FixedBackOff 1 s · 2 redeliveries"]
         REC["DeadLetterPointerRecoverer"]
@@ -234,7 +240,7 @@ sequenceDiagram
     participant Prod as LanguagePreferenceProducer
     participant K as Kafka
     participant Cons as LanguagePreferenceConsumer
-    participant Proc as process()
+    participant Proc as LanguagePreferenceProcessor
 
     Client->>Ctrl: POST /language-preferences
     Ctrl->>Prod: publish(event)
@@ -255,13 +261,15 @@ sequenceDiagram
 sequenceDiagram
     participant K as Kafka (language-preferences)
     participant Cons as LanguagePreferenceConsumer
-    participant Proc as process()
+    participant Proc as LanguagePreferenceProcessor
     participant EH as DefaultErrorHandler
     participant Rec as DeadLetterPointerRecoverer
     participant DLT as Kafka (dead-letters)
 
+    Note over Proc: the fallback throws in this scenario
     K->>Cons: onMessage(record) [delivery 1]
     Cons->>Proc: process(event)
+    Note over Proc: 3 attempts fail, then the fallback throws
     Proc-->>Cons: throws exception
     Cons->>EH: rethrow (no ack)
     Note over EH: FixedBackOff — wait 1 s, redeliver
@@ -278,6 +286,32 @@ sequenceDiagram
     EH->>K: commit offset + 1
     Note over K: the record stays in language-preferences
 ```
+
+The diagram shows a delivery that fails. With the fallback as written, a processing failure does
+not get this far: see [Consumer processing failures](#consumer-processing-failures). Deliveries
+fail when the fallback throws, when the acknowledgment fails, or when a payload cannot be
+deserialized.
+
+### Consumer processing failures
+
+`LanguagePreferenceConsumer.onMessage()` hands each event to
+`LanguagePreferenceProcessor.process()`. That is where a real implementation would make its
+downstream calls, such as a database write or an HTTP request. Everything in it runs on the
+consumer thread, in the call stack of `onMessage()`. A processing failure passes through three
+stages:
+
+1. **Resilience4j retry.** `process()` is attempted up to 3 times within one delivery, 1 s apart.
+   The consumer thread waits in between, and nothing else is read from the partition.
+2. **Fallback.** When every attempt has failed, or the circuit is open, `processFallback()` runs.
+   It logs the error and does not throw. `onMessage()` then acknowledges the record.
+3. **Redelivery and dead-lettering.** These apply only if an exception reaches `onMessage()`,
+   which for a processing failure means the fallback threw as well.
+
+The fallback as written therefore trades the delivery guarantee for progress: an event that
+cannot be processed is acknowledged and dropped, and the error log is the only trace of it. It is
+neither redelivered nor dead-lettered. A fallback that throws keeps the guarantee: the record is
+redelivered and, after the redeliveries are exhausted, gets a dead-letter pointer. Each
+redelivery repeats the 3 attempts, so a record is tried up to 9 times before it is dead-lettered.
 
 ### Dead-letter pointers
 
@@ -409,7 +443,8 @@ Both instances: 3 attempts, 1 s fixed wait, retries on any `Exception`.
 
 `FixedBackOff(1 s, 2 attempts)` — up to 2 redeliveries (3 deliveries in total) before a pointer to
 the message is written to the dead-letter topic. This operates at the Kafka listener container
-layer, independently of the Resilience4j retry inside `process()`.
+layer, around the Resilience4j retry inside `LanguagePreferenceProcessor.process()`, and only for
+exceptions that reach `onMessage()`.
 
 | Setting | Value | Purpose |
 |---|---|---|
@@ -435,6 +470,7 @@ treeView-beta
                 "consumer"
                     "DeadLetterPointerRecoverer.java"
                     "LanguagePreferenceConsumer.java"
+                    "LanguagePreferenceProcessor.java"
                 "producer"
                     "LanguagePreferenceProducer.java"
                     "LanguagePreferenceController.java"

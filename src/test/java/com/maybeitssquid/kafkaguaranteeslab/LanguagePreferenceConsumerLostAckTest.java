@@ -1,11 +1,12 @@
 package com.maybeitssquid.kafkaguaranteeslab;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.maybeitssquid.kafkaguaranteeslab.consumer.LanguagePreferenceConsumer;
+import com.maybeitssquid.kafkaguaranteeslab.consumer.LanguagePreferenceProcessor;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
 import java.util.Locale;
@@ -25,7 +26,8 @@ class LanguagePreferenceConsumerLostAckTest {
 
   @Test
   void lostAck_redeliversRecord_andProcessesItAgain() {
-    var consumer = spy(new LanguagePreferenceConsumer());
+    var processor = mock(LanguagePreferenceProcessor.class);
+    var consumer = new LanguagePreferenceConsumer(processor);
     var event = new LanguagePreference("cust-1", Locale.FRENCH);
     var record = new ConsumerRecord<>(LanguagePreferenceProducer.TOPIC, 0, 0L, "cust-1", event);
     Acknowledgment lostAck =
@@ -40,6 +42,6 @@ class LanguagePreferenceConsumerLostAckTest {
         .isInstanceOf(IllegalStateException.class);
     consumer.onMessage(record, ack);
 
-    verify(consumer, times(2)).process(event);
+    verify(processor, times(2)).process(event);
   }
 }

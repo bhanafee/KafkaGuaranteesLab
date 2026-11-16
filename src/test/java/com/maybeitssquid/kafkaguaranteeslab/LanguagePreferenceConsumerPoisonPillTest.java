@@ -7,7 +7,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.maybeitssquid.kafkaguaranteeslab.consumer.DeadLetterPointerRecoverer;
-import com.maybeitssquid.kafkaguaranteeslab.consumer.LanguagePreferenceConsumer;
+import com.maybeitssquid.kafkaguaranteeslab.consumer.LanguagePreferenceProcessor;
 import com.maybeitssquid.kafkaguaranteeslab.model.DeadLetterPointer;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
@@ -58,7 +58,7 @@ class LanguagePreferenceConsumerPoisonPillTest {
   @Value("${spring.kafka.consumer.dead-letter.topic}")
   private String deadLetterTopic;
 
-  @MockitoSpyBean private LanguagePreferenceConsumer consumer;
+  @MockitoSpyBean private LanguagePreferenceProcessor processor;
 
   @Test
   void unreadablePayload_getsPointer_andDoesNotBlockLaterRecords() throws Exception {
@@ -84,8 +84,8 @@ class LanguagePreferenceConsumerPoisonPillTest {
 
     awaitUntil(() -> committedOffset() == 2, Duration.ofSeconds(10));
     // The unreadable record never reaches the listener. The record behind it is processed.
-    verify(consumer, times(1)).process(any());
-    verify(consumer).process(valid);
+    verify(processor, times(1)).process(any());
+    verify(processor).process(valid);
   }
 
   private DeadLetterPointer readPointer() {

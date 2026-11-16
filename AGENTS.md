@@ -32,7 +32,8 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 
 - **`LanguagePreferenceController`** — HTTP endpoint (`POST /language-preferences`) for publishing events
 - **`LanguagePreferenceProducer`** — sends events to Kafka with retry/circuit-breaker protection
-- **`LanguagePreferenceConsumer`** — consumes events from Kafka and processes them
+- **`LanguagePreferenceConsumer`** — consumes events from Kafka and hands them to the processor
+- **`LanguagePreferenceProcessor`** — processes an event with retry/circuit-breaker protection and a fallback
 - **`DeadLetterPointerRecoverer`** — writes a pointer to a record that exhausted its retries to the `dead-letters` topic
 
 ## Architecture
@@ -45,11 +46,12 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 - `LanguagePreferenceController` exposes `POST /language-preferences` and waits for the publish outcome. It returns 202 Accepted once the broker acknowledges the event, and 503 Service Unavailable when the publish fails.
 
 **Consumer side** (`consumer/`):
-- `KafkaConfig` disables auto-commit (`enable.auto.commit=false`) and sets `AckMode.MANUAL_IMMEDIATE` — offset is committed only after `process()` succeeds or a dead-letter pointer is written.
-- `LanguagePreferenceConsumer.onMessage()` calls `process()`, then `ack.acknowledge()`. On exception it rethrows without acking; `DefaultErrorHandler` (fixed backoff from `application.yml`) redelivers, then calls `DeadLetterPointerRecoverer`.
+- `KafkaConfig` disables auto-commit (`enable.auto.commit=false`) and sets `AckMode.MANUAL_IMMEDIATE` — offset is committed only after `LanguagePreferenceProcessor.process()` returns or a dead-letter pointer is written.
+- `LanguagePreferenceConsumer.onMessage()` calls `LanguagePreferenceProcessor.process()`, then `ack.acknowledge()`. On exception it rethrows without acking; `DefaultErrorHandler` (fixed backoff from `application.yml`) redelivers, then calls `DeadLetterPointerRecoverer`.
 - `DeadLetterPointerRecoverer` writes a `DeadLetterPointer` (source topic, partition, offset, timestamp, consumer group, exception class and message) to the shared `dead-letters` topic. It does not copy the payload. It blocks until the broker acknowledges the pointer and throws if the write fails, so the record is redelivered rather than skipped. `setCommitRecovered(true)` commits the offset after the pointer is written.
 - The consumer's value deserializer is `ErrorHandlingDeserializer` wrapping `JacksonJsonDeserializer`, so a record that fails deserialization is dead-lettered without retries and never reaches the listener. Its pointer records a fixed message in place of the parser's message, which quotes the payload.
-- `process()` carries its own `@Retry` + `@CircuitBreaker` (instance name `languagePreferenceConsumer`) for any downstream call added there.
+- `LanguagePreferenceProcessor.process()` carries `@Retry` (with `fallbackMethod = "processFallback"`) + `@CircuitBreaker` (instance name `languagePreferenceConsumer`) for any downstream call added there. It is a separate bean injected into the consumer: Resilience4j works through the Spring proxy, and a call within one object bypasses it. Keep the fallback on `@Retry`; on `@CircuitBreaker` it would hide every failure from the retry.
+- `processFallback()` logs and does not throw, so a record whose processing fails on every attempt is acknowledged unprocessed. It is redelivered and dead-lettered only if an exception reaches `onMessage()`.
 - A record with a null value (a tombstone) is acknowledged and skipped. It is not processed and not dead-lettered.
 
 **Resilience4j config** lives in `application.yml` under `resilience4j.circuitbreaker` and `resilience4j.retry`. Both producer and consumer have named instances.
