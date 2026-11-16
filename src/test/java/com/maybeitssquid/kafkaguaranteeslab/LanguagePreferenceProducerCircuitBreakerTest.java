@@ -18,6 +18,7 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
@@ -62,7 +63,12 @@ class LanguagePreferenceProducerCircuitBreakerTest {
   private void openCircuit(LanguagePreference event) {
     int publishes = 0;
     while (circuitBreaker.getState() != CircuitBreaker.State.OPEN && publishes < MAX_PUBLISHES) {
-      producer.publish(event);
+      // Resilience4j runs the retries of a CompletionStage on its own scheduler thread. Waiting for
+      // the future means no retry is still in flight when the circuit opens. A retry that got its
+      // permit just before the circuit opened would otherwise reach KafkaTemplate afterwards.
+      var future = producer.publish(event);
+      assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
+          .isInstanceOf(ExecutionException.class);
       publishes++;
     }
     assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
