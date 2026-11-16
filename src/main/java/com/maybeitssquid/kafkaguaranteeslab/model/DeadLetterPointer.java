@@ -10,7 +10,8 @@ package com.maybeitssquid.kafkaguaranteeslab.model;
  * @param timestamp timestamp of the failed record, in epoch milliseconds
  * @param consumerGroup consumer group that failed to process the record, or null if unknown
  * @param exceptionClass class name of the root cause of the failure
- * @param exceptionMessage message of the root cause of the failure, which may be null
+ * @param exceptionMessage message of the root cause of the failure, which may be null. A fixed text
+ *     when the payload could not be deserialized, because the parser's message quotes it
  */
 public record DeadLetterPointer(
     String topic,

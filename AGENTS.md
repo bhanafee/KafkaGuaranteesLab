@@ -48,7 +48,7 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 - `KafkaConfig` disables auto-commit (`enable.auto.commit=false`) and sets `AckMode.MANUAL_IMMEDIATE` — offset is committed only after `process()` succeeds or a dead-letter pointer is written.
 - `LanguagePreferenceConsumer.onMessage()` calls `process()`, then `ack.acknowledge()`. On exception it rethrows without acking; `DefaultErrorHandler` (fixed backoff from `application.yml`) redelivers, then calls `DeadLetterPointerRecoverer`.
 - `DeadLetterPointerRecoverer` writes a `DeadLetterPointer` (source topic, partition, offset, timestamp, consumer group, exception class and message) to the shared `dead-letters` topic. It does not copy the payload. It blocks until the broker acknowledges the pointer and throws if the write fails, so the record is redelivered rather than skipped. `setCommitRecovered(true)` commits the offset after the pointer is written.
-- Records that fail deserialization are not dead-lettered: the consumer does not use `ErrorHandlingDeserializer`.
+- The consumer's value deserializer is `ErrorHandlingDeserializer` wrapping `JacksonJsonDeserializer`, so a record that fails deserialization is dead-lettered without retries and never reaches the listener. Its pointer records a fixed message in place of the parser's message, which quotes the payload.
 - `process()` carries its own `@Retry` + `@CircuitBreaker` (instance name `languagePreferenceConsumer`) for any downstream call added there.
 
 **Resilience4j config** lives in `application.yml` under `resilience4j.circuitbreaker` and `resilience4j.retry`. Both producer and consumer have named instances.

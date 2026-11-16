@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.kafka.core.KafkaOperations;
 import org.springframework.kafka.listener.ConsumerAwareRecordRecoverer;
+import org.springframework.kafka.support.serializer.DeserializationException;
 
 /**
  * Recovers a record that exhausted its delivery retries by writing a {@link DeadLetterPointer} to
@@ -27,10 +28,20 @@ import org.springframework.kafka.listener.ConsumerAwareRecordRecoverer;
  * recoverer throws, the error handler treats the recovery as failed, and the source record is
  * delivered again. The source offset is therefore never committed without a pointer. A send that
  * times out here may still succeed later, so the same record can get more than one pointer.
+ *
+ * <p>The pointer records the message of the root cause, except when the payload could not be
+ * deserialized. It then records {@link #UNREADABLE_PAYLOAD}.
  */
 public class DeadLetterPointerRecoverer implements ConsumerAwareRecordRecoverer {
 
   private static final Logger log = LoggerFactory.getLogger(DeadLetterPointerRecoverer.class);
+
+  /**
+   * Recorded in place of the exception message when a payload cannot be deserialized. A parser's
+   * message quotes the bytes it could not read, which would copy part of the payload into the
+   * pointer.
+   */
+  public static final String UNREADABLE_PAYLOAD = "payload could not be deserialized";
 
   private final KafkaOperations<String, DeadLetterPointer> template;
   private final String deadLetterTopic;
@@ -57,7 +68,7 @@ public class DeadLetterPointerRecoverer implements ConsumerAwareRecordRecoverer 
             record.timestamp(),
             consumer == null ? null : consumer.groupMetadata().groupId(),
             cause.getClass().getName(),
-            cause.getMessage());
+            isDeserializationFailure(exception) ? UNREADABLE_PAYLOAD : cause.getMessage());
     // Keyed by source partition, so pointers into one partition stay in offset order.
     String key = record.topic() + "-" + record.partition();
     try {
@@ -71,5 +82,14 @@ public class DeadLetterPointerRecoverer implements ConsumerAwareRecordRecoverer 
       throw new KafkaException("Failed to write dead-letter pointer " + pointer, ex);
     }
     log.warn("Dead-lettered record: {}", pointer);
+  }
+
+  private static boolean isDeserializationFailure(Throwable exception) {
+    for (Throwable t = exception; t != null; t = t.getCause()) {
+      if (t instanceof DeserializationException) {
+        return true;
+      }
+    }
+    return false;
   }
 }

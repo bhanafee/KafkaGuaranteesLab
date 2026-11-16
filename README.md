@@ -316,6 +316,13 @@ retention and access rules.
 - `setCommitRecovered(true)` makes the error handler commit the offset after a successful
   recovery. With a manual ack mode the container does not do this on its own.
 
+- The consumer's value deserializer is `ErrorHandlingDeserializer` wrapping
+  `JacksonJsonDeserializer`. A payload that cannot be deserialized would otherwise fail inside
+  `poll()`, where the error handler has no record to recover, and the consumer would retry the
+  same offset in a tight loop. With the wrapper, the failure reaches the error handler as a
+  `DeserializationException`. That exception is not retried: the pointer is written at once and
+  the record never reaches the listener.
+
 The order is therefore always: pointer acknowledged, then offset committed. A crash between the
 two redelivers the record, never loses it.
 
@@ -333,11 +340,10 @@ two redelivers the record, never loses it.
 - **A failing pointer write blocks the partition.** While `dead-letters` cannot be written, the
   failed record is redelivered indefinitely and nothing behind it in the partition is consumed.
   This is the price of never skipping a record without a pointer.
-- **Records that cannot be deserialized are not covered.** The consumer does not use
-  `ErrorHandlingDeserializer`, so a record with an unreadable payload fails inside `poll()`
-  and is never handed to the recoverer.
 - **The exception message is copied.** Keep payload data out of exception messages, or the
-  pointer carries it after all.
+  pointer carries it after all. Deserialization failures are the exception: a parser's message
+  quotes the bytes it could not read, so the pointer records the fixed text
+  `payload could not be deserialized` and the class of the root cause.
 - **The topic must exist.** `kafka-local.sh` creates `dead-letters`. Elsewhere, create it or rely
   on broker topic auto-creation.
 
