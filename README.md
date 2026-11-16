@@ -115,6 +115,8 @@ messages if the same event is published by multiple instances.
   at least one durable write while preventing duplicates from Kafka-level retries
 - **Manual offset commit**: `AckMode.MANUAL_IMMEDIATE` commits the offset only after `process()`
   succeeds; a crash before `ack.acknowledge()` causes redelivery, not loss
+- **Tombstones skipped**: a record with a null value carries no preference, so the consumer
+  acknowledges it without processing it and without dead-lettering it
 - **Application-layer retry**: Resilience4j `@Retry` on both producer and consumer handles transient
   downstream failures (3 attempts, 1 s wait each)
 - **Circuit breaker isolation**: independent Resilience4j `@CircuitBreaker` instances protect

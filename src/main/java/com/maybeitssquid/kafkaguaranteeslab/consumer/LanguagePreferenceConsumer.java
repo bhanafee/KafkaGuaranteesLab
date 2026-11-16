@@ -19,6 +19,8 @@ public class LanguagePreferenceConsumer {
    * Consumes language preference events with manual acknowledgment. The offset is committed only
    * after process() succeeds, or after a pointer to the failed record is written to the dead-letter
    * topic, guaranteeing at-least-once delivery. Resilience4j retries wrap the downstream call.
+   *
+   * <p>A record with a null value (a tombstone) is acknowledged without being processed.
    */
   @KafkaListener(
       topics = "language-preferences",
@@ -26,6 +28,17 @@ public class LanguagePreferenceConsumer {
       containerFactory = "kafkaListenerContainerFactory")
   public void onMessage(ConsumerRecord<String, LanguagePreference> record, Acknowledgment ack) {
     LanguagePreference event = record.value();
+    if (event == null) {
+      // A record with a null value is a tombstone. It carries no preference to process, so
+      // acknowledge it and move on rather than fail and dead-letter it.
+      log.info(
+          "Skipping tombstone: key={} partition={} offset={}",
+          record.key(),
+          record.partition(),
+          record.offset());
+      ack.acknowledge();
+      return;
+    }
     log.info(
         "Received event: customerId={} partition={} offset={}",
         event.customerId(),
