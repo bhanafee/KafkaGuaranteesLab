@@ -27,14 +27,6 @@ junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher
 # Security patches - Apache Commons
 patch-cve-2025-48734 = { module = "commons-beanutils:commons-beanutils", version = { strictly = "[1.11.0,)", prefer = "1.11.0" } }
 
-# Security patches - Apache Tomcat 11.0.25 (Spring Boot 4.1.1 manages 11.0.24). One entry per module,
-# named for CVE-2026-43512 (digest auth bypass). 11.0.25 also fixes CVE-2026-53404, CVE-2026-55276,
-# CVE-2026-59083, CVE-2026-59084 and CVE-2026-66299 (tomcat-embed-core) and CVE-2026-53434
-# (tomcat-embed-websocket). tomcat-embed-el is pinned with them to keep the modules aligned.
-patch-cve-2026-43512-core = { module = "org.apache.tomcat.embed:tomcat-embed-core", version = { strictly = "[11.0.25,)", prefer = "11.0.25" } }
-patch-cve-2026-43512-el = { module = "org.apache.tomcat.embed:tomcat-embed-el", version = { strictly = "[11.0.25,)", prefer = "11.0.25" } }
-patch-cve-2026-43512-ws = { module = "org.apache.tomcat.embed:tomcat-embed-websocket", version = { strictly = "[11.0.25,)", prefer = "11.0.25" } }
-
 # Security patches - Other
 # jsoup 1.23.2 fixes CVE-2026-75140; supersedes the 1.23.1 pin for GHSA-dcmj-56c4-q8dh.
 patch-cve-2026-75140 = { module = "org.jsoup:jsoup", version = { strictly = "[1.23.2,)", prefer = "1.23.2" } }
@@ -71,7 +63,7 @@ patch-cve-2026-59171 = { module = "org.json:json", version = { strictly = "[2026
 
 [bundles]
 spring-boot-core = ["spring-boot-starter-web", "spring-boot-starter-actuator", "spring-boot-starter-aspectj"]
-security-patches = ["patch-cve-2026-59171", "patch-cve-2025-48734", "patch-cve-2026-106451", "patch-cve-2026-43512-core", "patch-cve-2026-43512-el", "patch-cve-2026-43512-ws", "patch-cve-2026-49844", "patch-cve-2026-49844-log4j-to-slf4j", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-71290", "patch-cve-2026-75140", "patch-cve-2026-89407", "patch-cve-2026-89407-tools-jackson-core", "patch-cve-2026-91776", "patch-cve-2026-91776-tools-jackson-databind", "patch-cve-2026-102554", "patch-cve-2026-93451"]
+security-patches = ["patch-cve-2026-59171", "patch-cve-2025-48734", "patch-cve-2026-106451", "patch-cve-2026-49844", "patch-cve-2026-49844-log4j-to-slf4j", "patch-cve-2026-54399", "patch-cve-2026-54428", "patch-cve-2026-71290", "patch-cve-2026-75140", "patch-cve-2026-89407", "patch-cve-2026-89407-tools-jackson-core", "patch-cve-2026-91776", "patch-cve-2026-91776-tools-jackson-databind", "patch-cve-2026-102554", "patch-cve-2026-93451"]
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }

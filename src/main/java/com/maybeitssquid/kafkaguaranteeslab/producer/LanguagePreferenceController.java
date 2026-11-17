@@ -47,7 +47,7 @@ public class LanguagePreferenceController {
    * lab.publish.response-timeout-ms} has passed.
    *
    * <ul>
-   *   <li><b>202 Accepted:</b> the broker acknowledged the record.
+   *   <li><b>202, "Event published":</b> the broker acknowledged the record.
    *   <li><b>503, "Event not published":</b> the publish failed after its retries, or the circuit
    *       is open.
    *   <li><b>503, "Event not confirmed":</b> the outcome was not known in time. The send is still
@@ -77,7 +77,7 @@ public class LanguagePreferenceController {
     return CompletableFuture.supplyAsync(() -> producer.publish(event), executor)
         .thenCompose(outcome -> outcome)
         .orTimeout(responseTimeoutMs, TimeUnit.MILLISECONDS)
-        .thenApply(result -> response(HttpStatus.ACCEPTED, "Event queued: ", event))
+        .thenApply(result -> response(HttpStatus.ACCEPTED, "Event published: ", event))
         .exceptionally(ex ->
             response(
                 HttpStatus.SERVICE_UNAVAILABLE,

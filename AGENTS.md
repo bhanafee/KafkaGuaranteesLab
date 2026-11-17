@@ -22,7 +22,7 @@ A Spring Boot lab that shows why Kafka's idempotent producer does not give exact
 ./gradlew dependencyCheckAnalyze  # OWASP vulnerability scan (slow; fails at CVSS ≥ 7)
 ```
 
-**NVD key (optional):** `dependencyCheckAnalyze` reads the key from the `NVD_API_KEY` environment variable or the `nvd.apiKey` Gradle property. With a key, it updates the NVD data live. Without one, it uses the local NVD cache and logs a warning. CI runs without a key, so it also uses the cache.
+**NVD key (optional):** `dependencyCheckAnalyze` reads the key from the `NVD_API_KEY` environment variable or the `nvd.apiKey` Gradle property. With a key, it updates the NVD data live. Without one, it uses the local NVD cache and logs a warning. Run the check locally: no CI workflow runs it.
 
 **External dependencies:** Running the application requires a Kafka broker (see Local Development for local setup). The tests use an embedded broker.
 
@@ -47,7 +47,7 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 **Producer side** (`producer/`):
 - `KafkaConfig` sets `acks=all`, idempotence enabled, unlimited retries — Kafka-level at-least-once. It sets `delivery.timeout.ms` from `lab.producer.delivery-timeout-ms` (120000, Kafka's default), which bounds one `send()`. A publish goes on in the background after the controller has answered 503; the README's "How Long a Publish Can Run" gives the limits, so keep it in step with these settings.
 - `LanguagePreferenceProducer` wraps `KafkaTemplate.send()` with Resilience4j `@Retry` + `@CircuitBreaker` (instance name `languagePreferenceProducer`). The `fallbackMethod` (`publishFallback`) is declared on `@Retry`, so it runs once per publish: after the last failed attempt, or at once when the circuit is open, because the producer retry ignores `CallNotPermittedException`. It logs a warning and returns a failed future. There is no producer dead-letter store: one on the same cluster would fail along with the main topic.
-- `LanguagePreferenceController` exposes `POST /language-preferences`. It runs the publish on the task executor and waits for the outcome for at most `lab.publish.response-timeout-ms`. It returns 202 Accepted once the broker acknowledges the event, 503 "Event not published" when the publish fails, and 503 "Event not confirmed" when the outcome is not known in time. Every response carries the event id in the `Event-Id` header.
+- `LanguagePreferenceController` exposes `POST /language-preferences`. It runs the publish on the task executor and waits for the outcome for at most `lab.publish.response-timeout-ms`. It returns 202 "Event published" once the broker acknowledges the event, 503 "Event not published" when the publish fails, and 503 "Event not confirmed" when the outcome is not known in time. Every response carries the event id in the `Event-Id` header.
 
 **Consumer side** (`consumer/`):
 - `KafkaConfig` disables auto-commit (`enable.auto.commit=false`) and sets `AckMode.MANUAL_IMMEDIATE` — offset is committed only after `LanguagePreferenceProcessor.process()` returns or a dead-letter pointer is written.
