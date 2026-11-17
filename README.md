@@ -1,8 +1,8 @@
 # KafkaGuaranteesLab
 
 A Spring Boot lab that shows why Kafka's idempotent producer does not give exactly-once
-delivery. Kafka is configured for its strongest producer guarantee, an idempotent producer with
-`acks=all`. That removes one cause of duplicates: Kafka's own retries inside a single `send()`.
+delivery. The producer is idempotent with `acks=all`, the strongest guarantee a producer has
+without transactions. That removes one cause of duplicates: Kafka's own retries inside a single `send()`.
 Every other way to lose, skip or repeat an event remains.
 
 The lab lets you produce those failures on request and see the result. Each event carries an id, a
@@ -12,36 +12,45 @@ show what application-level resilience adds and what it costs.
 
 ## The Problem
 
-Kafka provides strong delivery and ordering guarantees for applications that follow the API contract. Under most
-conditions, every message is processed exactly once and in the same order by both producer and consumer. However,
-developers need to be aware of the boundaries and plan for failures. This lab shows where those boundaries are and what happens beyond them.
+Kafka's guarantees each cover one hop. With an idempotent producer and `acks=all`, a record that
+the broker acknowledges is stored durably, once for each call to `send()`, in the order its
+partition received it. With offsets committed after processing, a consumer reads every record at
+least once. Neither guarantee says that an event is processed exactly once from end to end. This
+lab shows where each guarantee stops and what happens beyond it.
+
+Two words have fixed meanings in this document:
+
+- An event is **delivered** when the consumer's listener receives a record that carries it. Kafka
+  and the listener container decide this.
+- An event is **processed** when the consumer has finished its work on it. In the lab that is an
+  entry in the ledger. In a real system it is a change in a database or a call to another service.
+
+Processing is what matters to the business. A delivery that is repeated is processed again unless
+the consumer prevents it, and a delivery can end without the event being processed.
 
 ### A Quick Peek Under the Covers
 
-To understand where things can go awry, it's helpful to understand what happens when things go right. There are
-three common delivery guarantees for messages:
+There are three common delivery guarantees for messages:
 
-* *At-most-once* guarantees that a message is delivered either once or not at all. Conceptually, the easiest way to
-  ensure this is to try to send the message one time and never retry.
-* *At-least-once* guarantees that a message is delivered at least once, but maybe more. Conceptually, the
-  easiest way to ensure this is to send the message and retry until it is acknowledged.
-* *Exactly-once* guarantees that a message is delivered once and no more. Conceptually, this is the same
-  as simultaneously guaranteeing both at-least-once *and* at-most-once.
+* *At-most-once*: a message is delivered once or not at all. The easy way to get this is to send
+  the message one time and never retry.
+* *At-least-once*: a message is delivered once or more. The easy way to get this is to send the
+  message and retry until it is acknowledged.
+* *Exactly-once*: a message is delivered once and no more. This is at-least-once and at-most-once
+  together.
 
-Obviously, you can't get exactly-once by using the easy approaches to at-most-once and at-least-once at the same time.
-What you can do instead is use retries as needed to ensure at least once delivery, then filter duplicates. Duplicates
-can happen when the sender retries while the receiver is down, or when the receiver is slow to process
-messages. Kafka implements a limited exactly-once guarantee by doing just that:
+The two easy ways cannot be combined: one never retries and the other always does. What works is
+to retry until acknowledged and then filter out the repeats. Kafka's producer does that for one
+hop, from the producer to the topic:
 
-* At-least-once comes from retrying until the broker acknowledges. `acks=all` makes that acknowledgement
-  durable: each message is persisted by all in-sync replicas before the broker acks, so an acked message
-  survives a broker failure.
-* The at-most-once half, suppressing duplicates from those retries, comes from `enable.idempotence=true`,
-  which has Kafka assign a unique key (producer ID + sequence number) to each message so the broker can drop a
-  replayed one.
+* At-least-once comes from retrying until the broker acknowledges. `acks=all` makes the
+  acknowledgment durable: all in-sync replicas persist the record before the broker acknowledges
+  it, so an acknowledged record survives a broker failure.
+* The filter comes from `enable.idempotence=true`. The producer gets a producer id and gives each
+  record a sequence number, and the broker drops a record whose number it has already written.
 
-Both `acks=all` and `enable.idempotence=true` have been default Kafka settings since 3.0.0. In addition, if
-idempotence is enabled, Kafka will automatically require `acks=all` for durable writes.
+Both settings are the default since Kafka 3.0. A producer that sets `enable.idempotence=true`
+together with an `acks` other than `all` fails to start with a `ConfigException`.
 
 ## Where Delivery Can Go Wrong
 
@@ -227,73 +236,74 @@ The producer-side scenarios that idempotence does not fix, in more detail.
 
 #### Timeout and Retry
 
-Suppose a producer application has this code, where `producer` is a `KafkaProducer<String, Foo>`:
+The lab's producer, without its logging and fault injection:
 
 ```java
-public void send(ProducerRecord<String, Foo> record) throws InterruptedException {
-    producer.send(record);
-    Thread.sleep(5);
-    producer.send(record);       // Send the same record again
+@Retry(name = "languagePreferenceProducer", fallbackMethod = "publishFallback")
+@CircuitBreaker(name = "languagePreferenceProducer")
+public CompletableFuture<SendResult<String, LanguagePreference>> publish(LanguagePreference event) {
+    return kafkaTemplate.send(TOPIC, event.customerId(), event);
 }
 ```
 
-Kafka would send the first message, wait 5 milliseconds, then send a second message with exactly the same contents.
-Kafka will view this as two separate messages. Each will be assigned a unique sequence number, and both will be delivered.
+Every call to `send()` makes a new record with a new sequence number. Idempotence filters only the
+repeats Kafka makes itself inside one call. When the Resilience4j retry calls `publish()` again,
+the broker sees a second record and keeps it. An application retry duplicates an event in two
+cases:
 
-Now consider a producer application that gives each attempt 5 milliseconds and retries with Resilience4j:
+- **The retry races a send that is still in flight.** This happens when the application gives up
+  on an attempt before Kafka does, for example by waiting on the future with
+  `get(5, TimeUnit.SECONDS)` and retrying on the timeout. Kafka goes on retrying the first send
+  until `delivery.timeout.ms` runs out, and it may succeed after the second was sent. There are
+  two ways to avoid this: keep `delivery.timeout.ms` no larger than the application's wait for
+  one attempt, or retry only when the future of the send has failed. The lab does the second.
+  `publish()` returns the future, and Resilience4j retries only after it has failed.
+- **The send failed although the record was written.** The request reached the broker, the
+  acknowledgment was lost, and the delivery timeout ran out before a retry got through. No
+  setting avoids this. The lab reproduces it with the `ambiguousSends` fault
+  (see [Experiments](#experiments)).
 
-```java
-@Retry(name = "send")
-public void send(ProducerRecord<String, Foo> record) throws Exception {
-    producer.send(record).get(5, TimeUnit.MILLISECONDS);   // give up on this attempt after 5 ms
-}
-```
+The first case returns one tier up. `POST /language-preferences` waits 10 s for the outcome and
+then answers 503 while the send is still in flight. A caller that sends the event again races it.
 
-If the first attempt times out (5ms is way too short), the retry will be triggered. But the first attempt might yet
-succeed even after the retry. As before, Kafka would send the same message twice with different sequence numbers.
-You can mitigate this failure by ensuring Kafka's internal retry loop finishes before the application retries.
-Enabling idempotence requires `retries` > 0. The critical setting is `delivery.timeout.ms`, which bounds the
-whole send including internal retries. Keep it *no larger* than the application's per-attempt timeout, or simply
-gate the application retry on the `send()` future completing. Idempotence dedups only Kafka's own retries. A
-fresh application-level `send()` gets a new sequence number and is not filtered.
+#### Signs of a Failed Send
 
-This lab takes the second mitigation. `LanguagePreferenceProducer.publish()` returns the future of the send, and
-Resilience4j retries only after that future has failed, so a retry never races a send that is still in flight.
-What remains is a send that reports failure although its record was written. The lab reproduces exactly that
-with the `ambiguousSends` fault (see [Experiments](#experiments)).
+With `acks=all`, the caller of `send()` sees one of these when a send has not been confirmed:
 
-#### Exception on Send
+| What the caller sees | Was the record written? |
+|---|---|
+| `send()` throws, for example when serialization fails or no metadata arrives within `max.block.ms` | No. The record never left the producer |
+| The future fails with an error the broker returned for the record, such as `RecordTooLargeException` | No |
+| The future fails with a `TimeoutException` when `delivery.timeout.ms` runs out | Unknown |
+| The caller's own `get(timeout)` gives up | Unknown. The send is still in progress |
 
-The producer might throw an exception or otherwise indicate failure on a `send()` call.
+A send that completes normally always has an offset. `RecordMetadata.hasOffset()` returns false
+only for a producer with `acks=0`, which gets no response from the broker.
 
-* `producer.send()` throws an exception
-* On the Future returned by `send()`:
-    * Any method throws an exception, including if `get(timeout)` times out
-    * `isCancelled()` returns true
-* On the `RecordMetadata` returned by `send().get()`:
-    * `hasOffset()` or `hasTimestamp()` returns false
-    * `offset()`, `timestamp()` or `partition()` returns -1
- 
-In most cases, the failure means the producer did not send the message successfully. However, there are a few cases
-where the message did get sent despite the failure. Retries from the application tier *may* send duplicate messages
-in those cases.
-
-**Tip:** These types of failures may indicate a problem with the producer configuration. Pay particular attention to
-the `acks`, `retries`, `delivery.timeout.ms` and `max.in.flight.requests.per.connection` settings.
+The lab's producer does not tell these apart. Its retry repeats the publish after any of them, and
+the controller reports every failure as 503. That is why its 503 means "not confirmed" and never
+"not sent".
 
 #### Boundaries after Restart
 
-If a producer application crashes after sending a message but before the broker acknowledges the receipt or before the
-receipt is recorded by the producer, the message may be delivered again when the application restarts. This can lead to
-duplicate messages. After restart, the producer will be assigned a new PID. Any message delivered before the
-crash but un-acked (network loss, timeout) will be re-sent under the new PID — the broker has no way
-to recognise it as a duplicate. Idempotence is per-session, not durable across process lifetimes.
+The producer keeps unsent and unacknowledged records in memory only. When the application stops,
+they are gone, and the Kafka producer sends nothing again after the restart. A duplicate after a
+restart comes from whatever feeds the application:
+
+- A caller whose connection broke sends its event again.
+- A queue, an outbox table or a batch job replays the events it had not marked as done.
+
+One of those events may have been written before the application stopped. The restarted producer
+has a new producer id, so the broker cannot match the second record to the first. Idempotence
+lasts for one producer session and no longer.
 
 #### Duplicate Producer Processes
 
-While outside the realm of Kafka, if multiple producer instances share the same logical role then each will have a
-different PID. The broker deduplicates per-PID, so each instance will send its own messages. This can lead to duplicate
-messages if the same event is published by multiple instances.
+Two instances of the application each have their own producer and their own producer id. The same
+event reaches both when a caller's retry is routed to the other instance, or when both read the
+same source. Each instance sends it and the broker keeps both records. The broker filters repeats
+within one producer id and partition, never across producers.
+`LabScenarioTest.secondProducerInstance_isNotDeduplicatedByTheBroker` shows this.
 
 ## Running the Lab
 
@@ -437,9 +447,11 @@ Some scenarios need a fault outside the application, and the lab does not create
 
 ### Delivery guarantee layers
 
-At-least-once delivery is enforced at two independent layers. The Kafka broker protocol handles
-durability on the producer side. Manual offset management handles redelivery on the consumer side.
-Resilience4j adds application-level retry and circuit breaking on top of both.
+The lab aims at at-least-once delivery in two independent layers. The Kafka broker protocol
+handles durability on the producer side. Manual offset management handles redelivery on the
+consumer side. Resilience4j adds application-level retry and circuit breaking on top of both. With
+the default fallback the consumer side falls short of at-least-once: see
+[Consumer processing failures](#consumer-processing-failures).
 
 ```mermaid
 flowchart TD
