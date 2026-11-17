@@ -36,7 +36,7 @@ import org.springframework.kafka.test.EmbeddedKafkaKraftBroker;
  */
 class LabRestartTest {
 
-  private static final Duration TIMEOUT = Duration.ofSeconds(30);
+  private static final Duration TIMEOUT = Duration.ofSeconds(60);
 
   private static EmbeddedKafkaBroker broker;
 
@@ -58,14 +58,22 @@ class LabRestartTest {
     }
   }
 
-  private static ConfigurableApplicationContext startApp(String... extraArgs) {
+  /**
+   * Starts an instance and waits until its consumer has partitions. An instance that is closed
+   * while its consumer is still joining stays in the group as a pending member, and the next
+   * rebalance waits most of a minute for it.
+   */
+  private static ConfigurableApplicationContext startApp(String... extraArgs) throws Exception {
     List<String> args = new ArrayList<>();
     args.add("--spring.kafka.bootstrap-servers=" + broker.getBrokersAsString());
     args.add("--server.port=0");
     args.add("--lab.consumer.redelivery.interval-ms=100");
     args.addAll(List.of(extraArgs));
-    return new SpringApplicationBuilder(KafkaGuaranteesLabApplication.class)
-        .run(args.toArray(String[]::new));
+    var app =
+        new SpringApplicationBuilder(KafkaGuaranteesLabApplication.class)
+            .run(args.toArray(String[]::new));
+    awaitUntil(() -> hasPartitions(app), TIMEOUT);
+    return app;
   }
 
   /** Makes an injected crash end the calling thread, and reports whether one has happened. */
@@ -147,9 +155,7 @@ class LabRestartTest {
 
     try (var first = startApp();
         var second = startApp()) {
-      // Wait for the group to settle with partitions on both instances. Publishing earlier would
-      // work too, but an instance that is closed while it is still joining the group takes most
-      // of a minute to stop.
+      // The second instance joining takes partitions from the first. Wait for both to hold some.
       awaitUntil(() -> hasPartitions(first) && hasPartitions(second), TIMEOUT);
 
       // Each instance has its own producer id, so the broker keeps both records. Whichever
