@@ -48,6 +48,9 @@ public class KafkaConfig {
   @Value("${lab.producer.idempotence}")
   private boolean idempotence;
 
+  @Value("${lab.producer.delivery-timeout-ms}")
+  private int deliveryTimeoutMs;
+
   // ── Producer ────────────────────────────────────────────────────────────
 
   private Map<String, Object> producerProps() {
@@ -60,6 +63,10 @@ public class KafkaConfig {
     // On in the lab's normal configuration. The stage1 profile turns it off to show what it adds.
     props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, idempotence);
     props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
+    // The time limit on one send(), Kafka's own retries included. It is set even at Kafka's
+    // default so that the lab states it. A send that the HTTP caller was told is not confirmed
+    // can still be written until this runs out.
+    props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, deliveryTimeoutMs);
     props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
     return props;
   }
