@@ -82,7 +82,7 @@ class LanguagePreferenceControllerTest {
     HttpResponse<String> response = post();
 
     assertThat(response.statusCode()).isEqualTo(202);
-    assertThat(response.body()).isEqualTo("Event queued: cust-1");
+    assertThat(response.body()).isEqualTo("Event published: cust-1");
     // The request carried no eventId, so one was assigned and is reported back.
     assertThat(response.headers().firstValue(LanguagePreferenceController.EVENT_ID_HEADER))
         .isPresent();

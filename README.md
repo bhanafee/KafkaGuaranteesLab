@@ -498,7 +498,7 @@ curl -i -X POST http://localhost:8080/language-preferences \
 
 | Response | Meaning |
 |---|---|
-| 202, `Event queued` | The broker acknowledged the record |
+| 202, `Event published` | The broker acknowledged the record |
 | 503, `Event not published` | The publish failed after its retries, or the circuit is open |
 | 503, `Event not confirmed` | No outcome within `lab.publish.response-timeout-ms`. The send may still succeed |
 
@@ -1048,34 +1048,35 @@ properties.
 treeView-beta
     "kafka-local.sh"
     "src"
-        "resources"
-            "application.yml"
-            "application-stage1.yml"
-            "application-stage2.yml"
-        "java"
-            "..."
-                "KafkaGuaranteesLabApplication.java"
-                "config"
-                    "KafkaConfig.java"
-                "consumer"
-                    "DeadLetterPointerRecoverer.java"
-                    "LanguagePreferenceConsumer.java"
-                    "LanguagePreferenceProcessor.java"
-                "lab"
-                    "CircuitBreakerSwitch.java"
-                    "Crasher.java"
-                    "FaultInjector.java"
-                    "KafkaLedgerJournal.java"
-                    "LabController.java"
-                    "LedgerEntry.java"
-                    "LedgerJournal.java"
-                    "ProcessingLedger.java"
-                "producer"
-                    "LanguagePreferenceProducer.java"
-                    "LanguagePreferenceController.java"
-                "model"
-                    "DeadLetterPointer.java"
-                    "LanguagePreference.java"
+        "main"
+            "resources"
+                "application.yml"
+                "application-stage1.yml"
+                "application-stage2.yml"
+            "java"
+                "..."
+                    "KafkaGuaranteesLabApplication.java"
+                    "config"
+                        "KafkaConfig.java"
+                    "consumer"
+                        "DeadLetterPointerRecoverer.java"
+                        "LanguagePreferenceConsumer.java"
+                        "LanguagePreferenceProcessor.java"
+                    "lab"
+                        "CircuitBreakerSwitch.java"
+                        "Crasher.java"
+                        "FaultInjector.java"
+                        "KafkaLedgerJournal.java"
+                        "LabController.java"
+                        "LedgerEntry.java"
+                        "LedgerJournal.java"
+                        "ProcessingLedger.java"
+                    "producer"
+                        "LanguagePreferenceProducer.java"
+                        "LanguagePreferenceController.java"
+                    "model"
+                        "DeadLetterPointer.java"
+                        "LanguagePreference.java"
 ```
 
 ## Technologies
