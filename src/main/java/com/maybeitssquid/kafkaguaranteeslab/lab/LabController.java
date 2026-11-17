@@ -20,16 +20,23 @@ public class LabController {
    * The body of a request to set faults. A count that is left out is null and means 0, so a request
    * can name only the fault it wants.
    *
+   * @param failedSends sends that should fail without writing anything to the topic
    * @param ambiguousSends sends to write to the topic and then report as failed
    * @param processingFailures calls to {@code process()} that should throw
    * @param lostCommits records to process and then not acknowledge
    */
   public record FaultRequest(
-      Integer ambiguousSends, Integer processingFailures, Integer lostCommits) {
+      Integer failedSends,
+      Integer ambiguousSends,
+      Integer processingFailures,
+      Integer lostCommits) {
 
     FaultInjector.Faults toFaults() {
       return new FaultInjector.Faults(
-          orZero(ambiguousSends), orZero(processingFailures), orZero(lostCommits));
+          orZero(failedSends),
+          orZero(ambiguousSends),
+          orZero(processingFailures),
+          orZero(lostCommits));
     }
 
     private static int orZero(Integer count) {

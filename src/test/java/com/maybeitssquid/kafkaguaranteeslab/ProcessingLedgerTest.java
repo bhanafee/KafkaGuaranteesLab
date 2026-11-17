@@ -33,6 +33,22 @@ class ProcessingLedgerTest {
   }
 
   @Test
+  void preference_isTheOneProcessedLast() {
+    var ledger = new ProcessingLedger();
+    var older = new LanguagePreference("cust-1", Locale.FRENCH);
+    var newer = new LanguagePreference("cust-1", Locale.GERMAN);
+
+    ledger.processed(older);
+    ledger.processed(newer);
+    assertThat(ledger.preferenceOf("cust-1")).isEqualTo("de");
+
+    ledger.processed(older);
+    assertThat(ledger.preferenceOf("cust-1")).isEqualTo("fr");
+    assertThat(ledger.summary().preferences()).containsEntry("cust-1", "fr");
+    assertThat(ledger.preferenceOf("cust-2")).isNull();
+  }
+
+  @Test
   void eventsWithoutAnId_getDifferentIds() {
     var first = new LanguagePreference("cust-1", Locale.FRENCH);
     var second = new LanguagePreference("cust-1", Locale.FRENCH);

@@ -40,7 +40,7 @@ class LabControllerTest {
     HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
     assertThat(response.statusCode()).isEqualTo(200);
-    assertThat(faults.pending()).isEqualTo(new Faults(1, 0, 0));
+    assertThat(faults.pending()).isEqualTo(Faults.none().withAmbiguousSends(1));
   }
 
   @Test
@@ -52,6 +52,11 @@ class LabControllerTest {
 
     assertThat(response.statusCode()).isEqualTo(200);
     assertThat(response.body())
-        .contains("\"events\"", "\"duplicates\"", "\"dropped\"", "\"skippedDuplicates\"");
+        .contains(
+            "\"events\"",
+            "\"duplicates\"",
+            "\"dropped\"",
+            "\"skippedDuplicates\"",
+            "\"preferences\"");
   }
 }

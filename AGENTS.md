@@ -62,8 +62,9 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 ### Lab instruments (`lab/`)
 
 - The application's own settings live under `lab.*` in `application.yml`. Do not put them under `spring.kafka.*`, where they would look like Spring Boot properties.
-- `ProcessingLedger` is in memory. It stands in for a downstream system and is what the scenario tests assert on.
-- `FaultInjector` holds three counts: `ambiguousSends` (a send is written, then reported as failed), `processingFailures` (`process()` throws) and `lostCommits` (a processed record is not acknowledged and is redelivered by the error handler, as after a consumer crash; each one uses up a delivery of the redelivery budget). The producer, processor and consumer each consume a count at the step concerned.
+- `ProcessingLedger` is in memory. It stands in for a downstream system and is what the scenario tests assert on. It keeps each customer's current preference, which is the one processed last, so a stale overwrite is visible.
+- Build a set of faults in tests with `Faults.none().with...()`, so a new fault does not change existing call sites.
+- `FaultInjector` holds four counts: `failedSends` (a send fails with nothing written), `ambiguousSends` (a send is written, then reported as failed), `processingFailures` (`process()` throws) and `lostCommits` (a processed record is not acknowledged and is redelivered by the error handler, as after a consumer crash; each one uses up a delivery of the redelivery budget). The producer, processor and consumer each consume a count at the step concerned.
 - `LabController` exposes both under `/lab`. The endpoints are unprotected.
 - The `stage1` and `stage2` profiles run the application without Resilience4j (one retry attempt, circuit breakers disabled by `CircuitBreakerSwitch`, fallback `rethrow`). `stage1` also turns idempotence off.
 

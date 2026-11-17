@@ -20,12 +20,14 @@ import org.springframework.test.annotation.DirtiesContext;
 /**
  * What closes the duplicate gap: with {@code lab.consumer.deduplicate=true} the consumer recognises
  * an event by its own id, so a duplicate that Kafka's idempotent producer let through is processed
- * once.
+ * once. It does not close the ordering gap: an event that is written late is still processed late.
+ *
+ * <p>The producer's retry waits 1 s, long enough for a second publish to finish in between.
  */
 @SpringBootTest(
     properties = {
       "lab.consumer.deduplicate=true",
-      "resilience4j.retry.instances.languagePreferenceProducer.wait-duration=10ms"
+      "resilience4j.retry.instances.languagePreferenceProducer.wait-duration=1s"
     })
 @DirtiesContext
 @EmbeddedKafka(
@@ -39,7 +41,7 @@ class LabDeduplicationTest {
 
   @Test
   void applicationRetry_afterAnAmbiguousSend_isProcessedOnce() throws Exception {
-    faults.set(new Faults(1, 0, 0));
+    faults.set(Faults.none().withAmbiguousSends(1));
     var event = new LanguagePreference("cust-1", Locale.FRENCH);
 
     producer.publish(event).get(5, TimeUnit.SECONDS);
@@ -48,5 +50,30 @@ class LabDeduplicationTest {
     awaitUntil(() -> ledger.summary().skippedDuplicates() == 1, Duration.ofSeconds(15));
     assertThat(ledger.processedCount(event.eventId())).isEqualTo(1);
     assertThat(ledger.summary().duplicates()).isEmpty();
+  }
+
+  @Test
+  void applicationRetry_thatLandsBehindANewerEvent_overwritesIt_despiteDeduplication()
+      throws Exception {
+    // A first publish makes the producer fetch its metadata, so the ones below are quick.
+    producer
+        .publish(new LanguagePreference("cust-warm-up", Locale.ITALIAN))
+        .get(5, TimeUnit.SECONDS);
+
+    // The first attempt of the older event fails with nothing written. While the retry waits, a
+    // newer event of the same customer is published. The retry then writes the older one behind
+    // it. Each event is processed once, so there is no repeat for the consumer to recognise.
+    faults.set(Faults.none().withFailedSends(1));
+    var older = new LanguagePreference("cust-reorder", Locale.FRENCH);
+    var newer = new LanguagePreference("cust-reorder", Locale.GERMAN);
+
+    var retried = producer.publish(older);
+    producer.publish(newer).get(5, TimeUnit.SECONDS);
+    retried.get(5, TimeUnit.SECONDS);
+
+    awaitUntil(() -> ledger.eventIdsFor("cust-reorder").size() == 2, Duration.ofSeconds(15));
+    assertThat(ledger.eventIdsFor("cust-reorder"))
+        .containsExactly(newer.eventId(), older.eventId());
+    assertThat(ledger.preferenceOf("cust-reorder")).isEqualTo("fr");
   }
 }

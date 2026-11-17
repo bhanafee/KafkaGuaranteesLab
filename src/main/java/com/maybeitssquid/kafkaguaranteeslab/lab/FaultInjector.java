@@ -16,12 +16,65 @@ public class FaultInjector {
   /**
    * The faults still to be injected.
    *
+   * @param failedSends sends that will fail without writing anything to the topic
    * @param ambiguousSends sends that will be written to the topic and then reported as failed
    * @param processingFailures calls to {@code process()} that will throw
    * @param lostCommits records that will be processed and then not acknowledged
    */
-  public record Faults(int ambiguousSends, int processingFailures, int lostCommits) {}
+  public record Faults(
+      int failedSends, int ambiguousSends, int processingFailures, int lostCommits) {
 
+    /**
+     * Returns a set with no faults, as a starting point for the {@code with} methods.
+     *
+     * @return a set in which every count is 0
+     */
+    public static Faults none() {
+      return new Faults(0, 0, 0, 0);
+    }
+
+    /**
+     * Returns a copy with a different count of failed sends.
+     *
+     * @param count sends that will fail without writing anything
+     * @return the copy
+     */
+    public Faults withFailedSends(int count) {
+      return new Faults(count, ambiguousSends, processingFailures, lostCommits);
+    }
+
+    /**
+     * Returns a copy with a different count of ambiguous sends.
+     *
+     * @param count sends that will be written and then reported as failed
+     * @return the copy
+     */
+    public Faults withAmbiguousSends(int count) {
+      return new Faults(failedSends, count, processingFailures, lostCommits);
+    }
+
+    /**
+     * Returns a copy with a different count of processing failures.
+     *
+     * @param count calls to {@code process()} that will throw
+     * @return the copy
+     */
+    public Faults withProcessingFailures(int count) {
+      return new Faults(failedSends, ambiguousSends, count, lostCommits);
+    }
+
+    /**
+     * Returns a copy with a different count of lost commits.
+     *
+     * @param count records that will be processed and then not acknowledged
+     * @return the copy
+     */
+    public Faults withLostCommits(int count) {
+      return new Faults(failedSends, ambiguousSends, processingFailures, count);
+    }
+  }
+
+  private final AtomicInteger failedSends = new AtomicInteger();
   private final AtomicInteger ambiguousSends = new AtomicInteger();
   private final AtomicInteger processingFailures = new AtomicInteger();
   private final AtomicInteger lostCommits = new AtomicInteger();
@@ -35,6 +88,7 @@ public class FaultInjector {
    * @param faults the number of times each fault should happen
    */
   public void set(Faults faults) {
+    failedSends.set(Math.max(0, faults.failedSends()));
     ambiguousSends.set(Math.max(0, faults.ambiguousSends()));
     processingFailures.set(Math.max(0, faults.processingFailures()));
     lostCommits.set(Math.max(0, faults.lostCommits()));
@@ -46,7 +100,19 @@ public class FaultInjector {
    * @return the remaining count of each fault
    */
   public Faults pending() {
-    return new Faults(ambiguousSends.get(), processingFailures.get(), lostCommits.get());
+    return new Faults(
+        failedSends.get(), ambiguousSends.get(), processingFailures.get(), lostCommits.get());
+  }
+
+  /**
+   * Asks whether the next send should fail without being attempted. This imitates a send that Kafka
+   * gave up on with nothing written, as when the broker stays unreachable for the whole delivery
+   * timeout.
+   *
+   * @return true if the caller should report failure and send nothing
+   */
+  public boolean takeFailedSend() {
+    return take(failedSends);
   }
 
   /**

@@ -66,7 +66,7 @@ class LabStageOneTest {
     awaitUntil(() -> ledger.processedCount(processed.eventId()) == 1, Duration.ofSeconds(15));
 
     // One attempt per delivery, and one delivery plus two redeliveries: three failures in all.
-    faults.set(new Faults(0, 3, 0));
+    faults.set(Faults.none().withProcessingFailures(3));
     var failing = new LanguagePreference("cust-2", Locale.GERMAN);
     producer.publish(failing).get(5, TimeUnit.SECONDS);
 
