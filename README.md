@@ -1,17 +1,20 @@
 # KafkaGuaranteesLab
 
-A Spring Boot application demonstrating the limitations of Kafka guarantees. It layers producer/consumer
-configuration with Resilience4j circuit breakers and retries to show how the guarantee is maintained end-to-end
-under failure. Kafka itself is configured for its strongest guarantee — an idempotent producer with `acks=all` —
-which deduplicates broker-level retries within a producer session. The demo shows
-how this can greatly reduce the number of duplicate messages but cannot eliminate them entirely without
-risking data loss.
+A Spring Boot lab that shows why Kafka's idempotent producer does not give exactly-once
+delivery. Kafka is configured for its strongest producer guarantee, an idempotent producer with
+`acks=all`. That removes one cause of duplicates: Kafka's own retries inside a single `send()`.
+Every other way to lose, skip or repeat an event remains.
+
+The lab lets you produce those failures on request and see the result. Each event carries an id, a
+ledger records what the consumer did with it, and a fault injector makes a send, a processing
+step or an offset commit go wrong. Resilience4j retries and circuit breakers sit on both sides to
+show what application-level resilience adds and what it costs.
 
 ## The Problem
 
 Kafka provides strong delivery and ordering guarantees for applications that follow the API contract. Under most
 conditions, every message is processed exactly once and in the same order by both producer and consumer. However,
-developers need to be aware of the boundaries and plan for failures. This demo shows how to handle common failure modes.
+developers need to be aware of the boundaries and plan for failures. This lab shows where those boundaries are and what happens beyond them.
 
 ### A Quick Peek Under the Covers
 
@@ -40,80 +43,11 @@ messages. Kafka implements a limited exactly-once guarantee by doing just that:
 Both `acks=all` and `enable.idempotence=true` have been default Kafka settings since 3.0.0. In addition, if
 idempotence is enabled, Kafka will automatically require `acks=all` for durable writes.
 
-### Common Failure Modes
-
-There are a few ways that exactly-once processing can fail even with idempotence enabled.
-
-#### Timeout and Retry
-
-Suppose a producer application has this code:
-
-```java
-public void send(Record<String,Foo> record) {
-    producer.send(record);
-    Thread.sleep(5);
-    producer.send(record);       // Send the same record again
-}
-```
-
-Kafka would send the first message, wait 5 milliseconds, then send a second message with exactly the same contents.
-Kafka will view this as two separate messages. Each will be assigned a unique sequence number, and both will be delivered.
-
-Now consider a producer application with a retry configured like this:
-
-```java
-@Retry(delay = 5)
-public void send(Record<String,Foo> record) {
-    producer.send(record);
-}
-```
-
-If the first attempt times out (5ms is way too short), the retry will be triggered. But the first attempt might yet
-succeed even after the retry. As before, Kafka would send the same message twice with different sequence numbers.
-You can mitigate this failure by ensuring Kafka's internal retry loop finishes before the application retries.
-Enabling idempotence requires `retries` > 0. The critical setting is `delivery.timeout.ms`, which bounds the
-whole send including internal retries. Keep it *no larger* than the application's per-attempt timeout, or simply
-gate the application retry on the `send()` future completing. Idempotence dedups only Kafka's own retries. A
-fresh application-level `send()` gets a new sequence number and is not filtered.
-
-#### Exception on Send
-
-The producer might throw an exception or otherwise indicate failure on a `send()` call.
-
-* `producer.send()` throws an exception
-* On the Future returned by `send()`:
-    * Any method throws an exception, including if `get(timeout)` times out
-    * `isCancelled()` returns true
-* On the `RecordMetadata` returned by `send().get()`:
-    * `hasOffset()` or `hasTimestamp()` returns false
-    * `offset()`, `timestamp()` or `partition()` returns -1
- 
-In most cases, the failure means the producer did not send the message successfully. However, there are a few cases
-where the message did get sent despite the failure. Retries from the application tier *may* send duplicate messages
-in those cases.
-
-**Tip:** These types of failures may indicate a problem with the producer configuration. Pay particular attention to
-the `acks`, `retries`, `delivery.timeout.ms` and `max.in.flight.requests.per.connection` settings.
-
-#### Boundaries after Restart
-
-If a producer application crashes after sending a message but before the broker acknowledges the receipt or before the
-receipt is recorded by the producer, the message may be delivered again when the application restarts. This can lead to
-duplicate messages. After restart, the producer will be assigned a new PID. Any message delivered before the
-crash but un-acked (network loss, timeout) will be re-sent under the new PID — the broker has no way
-to recognise it as a duplicate. Idempotence is per-session, not durable across process lifetimes.
-
-#### Duplicate Producer Processes
-
-While outside the realm of Kafka, if multiple producer instances share the same logical role then each will have a
-different PID. The broker deduplicates per-PID, so each instance will send its own messages. This can lead to duplicate
-messages if the same event is published by multiple instances.
-
 ## Where Delivery Can Go Wrong
 
 Three questions decide what happens to an event: was it sent, was it processed, and was it
 processed only once. This section answers them in three stages. It starts with neither Kafka
-idempotence nor Resilience4j, then adds idempotence, then adds Resilience4j. The demo itself runs
+idempotence nor Resilience4j, then adds idempotence, then adds Resilience4j. The lab itself runs
 with both.
 
 ### Stage 1: no idempotence, no Resilience4j
@@ -227,10 +161,10 @@ On the consumer side:
   **retention outruns the consumer** and **the group rebalances** more likely.
 - **A delivery fails part-way** is unchanged. A retry repeats a partial downstream change just as
   a redelivery does.
-- **The fallback decides what happens to an event that cannot be processed.** As written it logs
+- **The fallback decides what happens to an event that cannot be processed.** By default it logs
   and returns, so the record is acknowledged unprocessed. That adds a way for an event to go
-  unprocessed, with no dead-letter pointer. A fallback that throws would send the record to
-  redelivery and the dead-letter topic
+  unprocessed, with no dead-letter pointer. With `lab.consumer.fallback=rethrow` it throws, and
+  the record goes to redelivery and the dead-letter topic
   (see [Consumer processing failures](#consumer-processing-failures)).
 
 Resilience4j does nothing for these:
@@ -263,82 +197,205 @@ What is left is at-least-once delivery with gaps. Closing them takes changes out
 producer settings:
 
 - **Duplicates:** give every event its own id and have the consumer ignore an id it has already
-  processed. That covers every "processed twice" row, whichever tier caused it.
-- **Unsent events:** store the event durably before publishing, as in a transactional outbox.
-- **Unprocessed events:** never acknowledge a record that was not processed. Here that means a
-  fallback that throws.
+  processed. That covers every "processed twice" row, whichever tier caused it. The lab does this
+  with `lab.consumer.deduplicate=true`, against an in-memory ledger.
+- **Unprocessed events:** never acknowledge a record that was not processed. The lab does this
+  with `lab.consumer.fallback=rethrow`.
+- **Unsent events:** store the event durably before publishing, as in a transactional outbox. The
+  lab does not do this. It reports the failure to the caller.
 
-## What This Demo Shows
+### Producer-side details
 
-- **`acks=all` with idempotent producer**: `enable.idempotence=true` with unlimited retries ensures
-  at least one durable write while preventing duplicates from Kafka-level retries
-- **Manual offset commit**: `AckMode.MANUAL_IMMEDIATE` commits the offset only after
-  `LanguagePreferenceProcessor.process()` returns; a crash before `ack.acknowledge()` causes
-  redelivery, not loss
-- **Tombstones skipped**: a record with a null value carries no preference, so the consumer
-  acknowledges it without processing it and without dead-lettering it
-- **Application-layer retry**: Resilience4j `@Retry` on both producer and consumer handles transient
-  downstream failures (3 attempts, 1 s wait each). On the consumer side the annotations sit on a
-  separate bean, `LanguagePreferenceProcessor`, because Resilience4j works through the Spring
-  proxy and a call within one object bypasses it
-- **Fallback trade-off**: when consumer processing fails on every retry, the processor's fallback
-  logs the error and does not throw, so the record is acknowledged unprocessed
-  (see [Consumer processing failures](#consumer-processing-failures))
-- **Circuit breaker isolation**: independent Resilience4j `@CircuitBreaker` instances protect
-  against cascading failure; while the producer circuit is open, publishes fail fast
-- **Failure surfaced to the caller**: the HTTP endpoint responds 202 only after the broker
-  acknowledges the event, and 503 when the publish fails. The producer keeps no dead-letter store
-  (see [Why the producer has no dead-letter store](#why-the-producer-has-no-dead-letter-store))
-- **Dead-letter pointers**: a message that exhausts `DefaultErrorHandler` retries on the consumer
-  side is not silently dropped. A pointer to it (topic, partition, offset) is written to the shared
-  `dead-letters` topic. The message itself is not copied
-  (see [Dead-letter pointers](#dead-letter-pointers))
-- **Observability**: Actuator exposes `health`, `circuitbreakers`, `retries`, and `prometheus`
-  endpoints; circuit breaker state is surfaced in the health check
+The producer-side scenarios that idempotence does not fix, in more detail.
 
-## Requirements
+#### Timeout and Retry
+
+Suppose a producer application has this code, where `producer` is a `KafkaProducer<String, Foo>`:
+
+```java
+public void send(ProducerRecord<String, Foo> record) throws InterruptedException {
+    producer.send(record);
+    Thread.sleep(5);
+    producer.send(record);       // Send the same record again
+}
+```
+
+Kafka would send the first message, wait 5 milliseconds, then send a second message with exactly the same contents.
+Kafka will view this as two separate messages. Each will be assigned a unique sequence number, and both will be delivered.
+
+Now consider a producer application that gives each attempt 5 milliseconds and retries with Resilience4j:
+
+```java
+@Retry(name = "send")
+public void send(ProducerRecord<String, Foo> record) throws Exception {
+    producer.send(record).get(5, TimeUnit.MILLISECONDS);   // give up on this attempt after 5 ms
+}
+```
+
+If the first attempt times out (5ms is way too short), the retry will be triggered. But the first attempt might yet
+succeed even after the retry. As before, Kafka would send the same message twice with different sequence numbers.
+You can mitigate this failure by ensuring Kafka's internal retry loop finishes before the application retries.
+Enabling idempotence requires `retries` > 0. The critical setting is `delivery.timeout.ms`, which bounds the
+whole send including internal retries. Keep it *no larger* than the application's per-attempt timeout, or simply
+gate the application retry on the `send()` future completing. Idempotence dedups only Kafka's own retries. A
+fresh application-level `send()` gets a new sequence number and is not filtered.
+
+This lab takes the second mitigation. `LanguagePreferenceProducer.publish()` returns the future of the send, and
+Resilience4j retries only after that future has failed, so a retry never races a send that is still in flight.
+What remains is a send that reports failure although its record was written. The lab reproduces exactly that
+with the `ambiguousSends` fault (see [Experiments](#experiments)).
+
+#### Exception on Send
+
+The producer might throw an exception or otherwise indicate failure on a `send()` call.
+
+* `producer.send()` throws an exception
+* On the Future returned by `send()`:
+    * Any method throws an exception, including if `get(timeout)` times out
+    * `isCancelled()` returns true
+* On the `RecordMetadata` returned by `send().get()`:
+    * `hasOffset()` or `hasTimestamp()` returns false
+    * `offset()`, `timestamp()` or `partition()` returns -1
+ 
+In most cases, the failure means the producer did not send the message successfully. However, there are a few cases
+where the message did get sent despite the failure. Retries from the application tier *may* send duplicate messages
+in those cases.
+
+**Tip:** These types of failures may indicate a problem with the producer configuration. Pay particular attention to
+the `acks`, `retries`, `delivery.timeout.ms` and `max.in.flight.requests.per.connection` settings.
+
+#### Boundaries after Restart
+
+If a producer application crashes after sending a message but before the broker acknowledges the receipt or before the
+receipt is recorded by the producer, the message may be delivered again when the application restarts. This can lead to
+duplicate messages. After restart, the producer will be assigned a new PID. Any message delivered before the
+crash but un-acked (network loss, timeout) will be re-sent under the new PID — the broker has no way
+to recognise it as a duplicate. Idempotence is per-session, not durable across process lifetimes.
+
+#### Duplicate Producer Processes
+
+While outside the realm of Kafka, if multiple producer instances share the same logical role then each will have a
+different PID. The broker deduplicates per-PID, so each instance will send its own messages. This can lead to duplicate
+messages if the same event is published by multiple instances.
+
+## Running the Lab
+
+### Requirements
 
 - Java 17 or higher (Java 25 toolchain used for compilation)
-- Kafka broker on `localhost:9092` (or use the included `kafka-local.sh`)
+- A Kafka broker on `localhost:9092`. The included `kafka-local.sh` starts one in a container,
+  using `container`, `podman` or `docker`, whichever it finds first.
 
-## Running the Demo
+### Start
 
-Start a local Kafka broker in KRaft mode (no ZooKeeper):
+Start a local Kafka broker in KRaft mode (no ZooKeeper), then the application:
 
 ```bash
 ./kafka-local.sh start
-```
-
-Build and run:
-
-```bash
 ./gradlew bootRun
 ```
 
-Send a language preference event:
+### Send an event and see what happened
 
 ```bash
-curl -X POST http://localhost:8080/language-preferences \
+curl -i -X POST http://localhost:8080/language-preferences \
   -H 'Content-Type: application/json' \
   -d '{"customerId": "abc123", "preferredLanguage": "fr-CA"}'
-# HTTP 202 Accepted once the broker acknowledges the event
-# HTTP 503 Service Unavailable if the publish fails
 ```
 
-Read the dead-letter pointers, if any:
+| Response | Meaning |
+|---|---|
+| 202, `Event queued` | The broker acknowledged the record |
+| 503, `Event not published` | The publish failed after its retries, or the circuit is open |
+| 503, `Event not confirmed` | No outcome within `lab.publish.response-timeout-ms`. The send may still succeed |
+
+Every response carries the event's id in the `Event-Id` header. An event sent without an
+`eventId` gets a random one. To send the *same* event again, as a caller does when it retries,
+put that id in the body: `{"eventId": "...", "customerId": "abc123", "preferredLanguage": "fr-CA"}`.
+
+The ledger shows what the consumer did with each event:
 
 ```bash
-kafka-console-consumer --bootstrap-server localhost:9092 --topic dead-letters --from-beginning
+curl http://localhost:8080/lab/ledger
+# {"events":1,"processings":1,"duplicates":{},"dropped":[],"skippedDuplicates":0}
 ```
 
-Check circuit breaker and retry state:
+- `duplicates` lists the events processed more than once, with the number of times.
+- `dropped` lists the events acknowledged without being processed.
+- `skippedDuplicates` counts the repeats the consumer recognised and did not process.
+
+The ledger is in memory and starts empty with the application.
+`curl -X DELETE http://localhost:8080/lab/ledger` empties it. The `/lab` endpoints are unprotected
+and are for the lab only.
+
+Other things to look at:
 
 ```bash
 curl http://localhost:8080/actuator/circuitbreakers
 curl http://localhost:8080/actuator/retries
+kafka-console-consumer --bootstrap-server localhost:9092 --topic dead-letters --from-beginning
 ```
 
-Stop the broker when done:
+### Experiments
+
+A fault is a count of how many more times something should go wrong. Set the faults, send an
+event, then read the ledger:
+
+```bash
+curl -X POST http://localhost:8080/lab/faults \
+  -H 'Content-Type: application/json' -d '{"ambiguousSends": 1}'
+```
+
+| Scenario | How to produce it | What you see |
+|---|---|---|
+| The application retries a publish | `{"ambiguousSends": 1}`, then send one event. The first send is written and reported as failed, and the retry sends it again | The event under `duplicates`, with 2 |
+| The caller sends the event again | Send one event, then send it again with the same `eventId` | The event under `duplicates`, with 2 |
+| The offset commit is lost | `{"lostCommits": 1}`, then send one event. It is processed and not acknowledged, then redelivered | The event under `duplicates`, with 2 |
+| The fallback acknowledges a failed event | `{"processingFailures": 3}`, then send one event. All 3 attempts fail | The event under `dropped` |
+| It is dead-lettered | Start with `--lab.consumer.fallback=rethrow`. `{"processingFailures": 9}`, then send one event. 3 deliveries of 3 attempts fail | Nothing in the ledger, and a pointer in `dead-letters` |
+| The outcome is unknown | Stop the broker with `./kafka-local.sh stop`, then send one event | 503 `Event not confirmed` after 10 s |
+| Duplicates closed by event id | Start with `--lab.consumer.deduplicate=true`, then repeat any of the first three | `skippedDuplicates` is 1 and `duplicates` is empty |
+
+The dead-letter experiment can leave the consumer's circuit open, because 9 failures fill most of
+its 10-call window. For the next 30 s every event is then rejected and dead-lettered too. Check
+`/actuator/circuitbreakers` before the next experiment.
+
+Pass a setting on the command line like this:
+
+```bash
+./gradlew bootRun --args='--lab.consumer.fallback=rethrow'
+```
+
+`LabScenarioTest`, `LabDeduplicationTest` and `LanguagePreferenceConsumerDeadLetterTest` run
+these experiments automatically, apart from stopping the broker.
+
+### Stages
+
+The three stages of [Where Delivery Can Go Wrong](#where-delivery-can-go-wrong) can each be
+started. Without a profile the application runs stage 3.
+
+| Stage | Start with | Idempotence | Retries and circuit breakers |
+|---|---|---|---|
+| 1 | `./gradlew bootRun --args='--spring.profiles.active=stage1'` | Off | Off |
+| 2 | `./gradlew bootRun --args='--spring.profiles.active=stage2'` | On | Off |
+| 3 | `./gradlew bootRun` | On | On |
+
+In stages 1 and 2 a retry has one attempt, the circuit breakers are disabled, and a processing
+failure goes straight to redelivery and the dead-letter topic.
+
+### What the lab cannot reproduce
+
+Some scenarios need a fault outside the application, and the lab does not create them:
+
+- **Kafka resends a batch** and **a resent batch lands late.** These are the two scenarios
+  idempotence fixes, so they are the only observable difference between stage 1 and stage 2.
+  Producing them needs the broker's acknowledgment to be lost on the network, for example with a
+  fault-injecting proxy between the application and the broker.
+- **The group rebalances.** This needs a second consumer joining or leaving mid-batch.
+- **Retention outruns the consumer.** This needs a topic with a short retention and a consumer
+  that is held back.
+
+### Stop
 
 ```bash
 ./kafka-local.sh stop
@@ -446,10 +503,10 @@ sequenceDiagram
     Note over K: the record stays in language-preferences
 ```
 
-The diagram shows a delivery that fails. With the fallback as written, a processing failure does
+The diagram shows a delivery that fails. With the default fallback, a processing failure does
 not get this far: see [Consumer processing failures](#consumer-processing-failures). Deliveries
-fail when the fallback throws, when the acknowledgment fails, or when a payload cannot be
-deserialized.
+fail when the fallback throws (`lab.consumer.fallback=rethrow`), when the acknowledgment fails, or
+when a payload cannot be deserialized.
 
 ### Consumer processing failures
 
@@ -462,20 +519,27 @@ stages:
 1. **Resilience4j retry.** `process()` is attempted up to 3 times within one delivery, 1 s apart.
    The consumer thread waits in between, and nothing else is read from the partition.
 2. **Fallback.** When every attempt has failed, or the circuit is open, `processFallback()` runs.
-   It logs the error and does not throw. `onMessage()` then acknowledges the record.
+   What it does is set by `lab.consumer.fallback`.
 3. **Redelivery and dead-lettering.** These apply only if an exception reaches `onMessage()`,
-   which for a processing failure means the fallback threw as well.
+   which for a processing failure means the fallback threw.
 
-The fallback as written therefore trades the delivery guarantee for progress: an event that
-cannot be processed is acknowledged and dropped, and the error log is the only trace of it. It is
-neither redelivered nor dead-lettered. A fallback that throws keeps the guarantee: the record is
-redelivered and, after the redeliveries are exhausted, gets a dead-letter pointer. Each
-redelivery repeats the 3 attempts, so a record is tried up to 9 times before it is dead-lettered.
+The two fallback settings are a choice between progress and the delivery guarantee:
+
+- **`acknowledge`, the default.** The fallback logs the error and returns, and `onMessage()`
+  acknowledges the record. An event that cannot be processed is dropped. It is neither
+  redelivered nor dead-lettered, and the error log and the ledger's `dropped` list are the only
+  traces of it.
+- **`rethrow`.** The fallback throws. The record is redelivered and, after the redeliveries are
+  exhausted, gets a dead-letter pointer. Each redelivery repeats the 3 attempts, so a record is
+  tried up to 9 times before it is dead-lettered, and its partition waits meanwhile.
+
+A record with a null value (a tombstone) carries no preference. The consumer acknowledges it
+without processing it and without dead-lettering it.
 
 ### Dead-letter pointers
 
 A conventional dead-letter topic holds a full copy of each failed record, usually in one topic per
-source topic. This demo keeps one shared `dead-letters` topic and writes only a pointer to the
+source topic. This lab keeps one shared `dead-letters` topic and writes only a pointer to the
 failed record:
 
 ```json
@@ -505,7 +569,7 @@ retention and access rules.
 - The pointer is sent through its own `KafkaTemplate<String, DeadLetterPointer>`, built from the
   same producer settings as the events (`acks=all`, idempotent). The key is
   `<source topic>-<source partition>`, so pointers into one source partition stay in offset order.
-- The recoverer blocks on the send for up to `spring.kafka.consumer.dead-letter.send-timeout-ms`.
+- The recoverer blocks on the send for up to `lab.dead-letter.send-timeout-ms`.
   If the send fails or times out, the recoverer throws. `DefaultErrorHandler` treats that as a
   failed recovery and redelivers the source record with a fresh set of retries.
 - `setCommitRecovered(true)` makes the error handler commit the offset after a successful
@@ -550,15 +614,16 @@ the same reason. It could only help with failures specific to one record or one 
 oversized record or a missing topic.
 
 So the producer stores nothing and reports the failure. `LanguagePreferenceController` waits for
-the publish outcome and responds 503 Service Unavailable when the publish fails after its retries
-or the circuit is open. The caller still holds the event and decides whether to retry.
+the publish outcome, for at most `lab.publish.response-timeout-ms`, and responds 503 Service
+Unavailable when the publish fails after its retries, the circuit is open, or the outcome is not
+known in time. The caller still holds the event and decides whether to retry.
 
-- A 503 does not prove the event was not written. If the outcome is not known before the Spring
-  MVC async request timeout, the response is also 503 while the send is still in progress. A
-  caller that retries can then publish a duplicate. This is the
-  [Timeout and Retry](#timeout-and-retry) failure mode, one tier up.
+- A 503 does not prove the event was not written. When the outcome is not known in time, the
+  response is 503 `Event not confirmed` while the send is still in progress. A caller that
+  retries can then publish a duplicate, unless it repeats the event's id and the consumer
+  deduplicates. This is the [Timeout and Retry](#timeout-and-retry) failure mode, one tier up.
 - A system that must accept events while Kafka is down needs a durable store outside Kafka, such
-  as a transactional outbox. That is outside this demo.
+  as a transactional outbox. That is outside this lab.
 
 ## Configuration reference
 
@@ -567,7 +632,7 @@ or the circuit is open. The caller still holds the event and decides whether to 
 | Setting | Value | Purpose |
 |---|---|---|
 | `acks` | `all` | All in-sync replicas must acknowledge before the send completes |
-| `enable.idempotence` | `true` | Prevents duplicate records from broker-level retries |
+| `enable.idempotence` | `true` | Prevents duplicate records from broker-level retries. Set by `lab.producer.idempotence` |
 | `retries` | `Integer.MAX_VALUE` | Retries transient errors until `delivery.timeout.ms` elapses; the time bound, not the count, limits retries |
 | `delivery.timeout.ms` | `120000` (default) | Upper bound on a single send, including all internal retries; not overridden in `KafkaConfig` |
 | `max.in.flight.requests.per.connection` | `5` | Maximum allowed with idempotence enabled |
@@ -611,11 +676,24 @@ exceptions that reach `onMessage()`.
 
 | Setting | Value | Purpose |
 |---|---|---|
-| `spring.kafka.consumer.retry.interval-ms` | `1000` | Wait between redeliveries |
-| `spring.kafka.consumer.retry.max-attempts` | `2` | Redeliveries after the first delivery |
-| `spring.kafka.consumer.dead-letter.topic` | `dead-letters` | Shared topic for dead-letter pointers |
-| `spring.kafka.consumer.dead-letter.send-timeout-ms` | `10000` | How long the recoverer waits for the pointer to be acknowledged |
+| `lab.consumer.redelivery.interval-ms` | `1000` | Wait between redeliveries |
+| `lab.consumer.redelivery.max-attempts` | `2` | Redeliveries after the first delivery |
+| `lab.dead-letter.topic` | `dead-letters` | Shared topic for dead-letter pointers |
+| `lab.dead-letter.send-timeout-ms` | `10000` | How long the recoverer waits for the pointer to be acknowledged |
 | `commitRecovered` | `true` | Commit the offset once the pointer is written |
+
+### Lab switches
+
+The application's own settings live under `lab.*` in `application.yml`. They are not Spring Boot
+properties.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `lab.producer.idempotence` | `true` | Kafka's idempotent producer. Off in the `stage1` profile |
+| `lab.circuit-breakers.enabled` | `true` | Off in the `stage1` and `stage2` profiles |
+| `lab.consumer.fallback` | `acknowledge` | `acknowledge` drops an event that cannot be processed. `rethrow` sends it to redelivery and the dead-letter topic |
+| `lab.consumer.deduplicate` | `false` | Skip an event whose id was already processed |
+| `lab.publish.response-timeout-ms` | `10000` | How long `POST /language-preferences` waits for the publish outcome |
 
 ## Layout
 
@@ -625,6 +703,8 @@ treeView-beta
     "src"
         "resources"
             "application.yml"
+            "application-stage1.yml"
+            "application-stage2.yml"
         "java"
             "..."
                 "KafkaGuaranteesLabApplication.java"
@@ -634,6 +714,11 @@ treeView-beta
                     "DeadLetterPointerRecoverer.java"
                     "LanguagePreferenceConsumer.java"
                     "LanguagePreferenceProcessor.java"
+                "lab"
+                    "CircuitBreakerSwitch.java"
+                    "FaultInjector.java"
+                    "LabController.java"
+                    "ProcessingLedger.java"
                 "producer"
                     "LanguagePreferenceProducer.java"
                     "LanguagePreferenceController.java"
@@ -642,18 +727,12 @@ treeView-beta
                     "LanguagePreference.java"
 ```
 
-
 ## Technologies
 
-| Component | Version |
-|-----------|---------|
-| Java | 25 (toolchain; runs on 17+) |
-| Gradle | 9.6.1 |
-| Spring Boot | 4.0.6 |
-| Resilience4j | 2.4.0 |
-| Spring Kafka | (via Spring Boot) |
-| Micrometer/Prometheus | (via Spring Boot) |
-| JaCoCo | 0.8.14 |
+Java, Gradle, Spring Boot, Spring Kafka, Resilience4j, Micrometer with Prometheus, and JaCoCo.
+The versions are declared in `gradle/libs.versions.toml` and
+`gradle/wrapper/gradle-wrapper.properties`. Spring Boot's dependency management sets the versions
+of Spring Kafka, the Kafka client and Micrometer.
 
 ## Links
 
