@@ -10,6 +10,41 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
 
+/**
+ * Publishes language preference events to Kafka, under the {@code languagePreferenceProducer}
+ * Resilience4j retry and circuit breaker configured in {@code application.yml}.
+ *
+ * <p><b>How the two annotations nest.</b> The retry is the outer one and the circuit breaker the
+ * inner one. Each attempt passes through the circuit breaker separately, so a publish that fails
+ * all of its attempts adds three failures to the circuit breaker's window, not one.
+ *
+ * <ul>
+ *   <li><b>Retry:</b> up to 3 attempts, with a fixed 1 s wait between them, on any {@code
+ *       Exception} except {@code CallNotPermittedException}. An open circuit rejects every attempt,
+ *       so retrying the rejection would only delay the failure.
+ *   <li><b>Circuit breaker:</b> looks at the last 10 calls. When at least half of them failed, or
+ *       at least 80% took longer than 2 s, the circuit opens for 30 s and rejects every call. It
+ *       then lets 3 trial calls through to decide whether to close again.
+ * </ul>
+ *
+ * <p><b>The fallback belongs to the retry.</b> A fallback on the outer annotation runs once per
+ * publish, after the last attempt. On the circuit breaker it would run once per attempt.
+ *
+ * <p><b>This configuration slows publishing down, without saying so.</b>
+ *
+ * <ul>
+ *   <li>{@link #publish} returns a future, so Resilience4j does not block the caller between
+ *       attempts. It runs the retries on its own scheduler thread. The future still completes only
+ *       after the last attempt, so whoever waits on it waits for all of them.
+ *   <li>One attempt can itself take a long time. Kafka keeps retrying inside a single {@code
+ *       send()} until {@code delivery.timeout.ms} (2 minutes by default). Three attempts of that
+ *       length, plus the waits, exceed 6 minutes before the caller learns of a failure.
+ *   <li>The first attempt runs on the caller's thread, and {@code send()} can block there while it
+ *       waits for topic metadata, up to {@code max.block.ms}.
+ *   <li>Slowness alone opens the circuit. Sends that succeed but take longer than 2 s count against
+ *       the slow-call threshold, and an open circuit fails publishes that would have succeeded.
+ * </ul>
+ */
 @Service
 public class LanguagePreferenceProducer {
 
@@ -22,8 +57,35 @@ public class LanguagePreferenceProducer {
     this.kafkaTemplate = kafkaTemplate;
   }
 
-  // The fallback belongs to @Retry, the outer of the two, so it runs once per publish and not once
-  // per attempt.
+  /**
+   * Sends the event to Kafka, keyed by customer id, and returns a future for the outcome.
+   *
+   * <p><b>A failed send is ambiguous.</b> When {@code send()} fails, the caller has no way of
+   * knowing whether the message was already transmitted. A send can time out after the request left
+   * the producer, or lose the broker's acknowledgment on the way back. The broker may have written
+   * the record even though the future failed. A failure here means "not confirmed", never "not
+   * sent".
+   *
+   * <p><b>A retry is a new message to Kafka.</b> Within one {@code send()}, the idempotent producer
+   * gives the record a producer id and sequence number, and the broker uses them to drop a repeat
+   * caused by Kafka's own retries. That is the record's idempotency key. A Resilience4j retry calls
+   * {@code send()} again, which produces a <em>new</em> idempotency key for the same event. The
+   * broker cannot tell that the two records are the same event, so if the earlier attempt did reach
+   * the log, both are delivered.
+   *
+   * <p>Retrying at this level therefore exchanges a possible lost event for a possible duplicate.
+   * That is at-least-once delivery, and it is why consumers of this topic must tolerate the same
+   * event twice.
+   *
+   * <p><b>Where failures land.</b> In the returned future, not in a thrown exception. That holds
+   * for an exception thrown by {@code send()} itself, for a future that fails later, and for a call
+   * rejected by an open circuit. Once the last attempt has failed, {@link #publishFallback}
+   * supplies the failed future.
+   *
+   * @param event the event to publish
+   * @return a future that completes with the send result once the broker acknowledges the record,
+   *     or fails once the publish has finally failed
+   */
   @Retry(name = "languagePreferenceProducer", fallbackMethod = "publishFallback")
   @CircuitBreaker(name = "languagePreferenceProducer")
   public CompletableFuture<SendResult<String, LanguagePreference>> publish(
@@ -44,9 +106,19 @@ public class LanguagePreferenceProducer {
         });
   }
 
-  // Called by Resilience4j once a publish has finally failed: after the last retry attempt, or at
-  // once when the circuit is open, because the retry ignores CallNotPermittedException. The event
-  // is not stored anywhere: the failed future tells the caller it was not sent.
+  /**
+   * Called by the retry once a publish has finally failed: after the last attempt, or at once when
+   * the circuit is open. It logs a warning and returns a failed future carrying the failure.
+   *
+   * <p>The event is not stored anywhere. A dead-letter topic on the same cluster would fail along
+   * with the main topic, so the failed future is how the caller learns that the event is not
+   * confirmed. The ambiguity described on {@link #publish} still applies: an earlier attempt may
+   * have reached the log.
+   *
+   * @param event the event that could not be published
+   * @param t the failure of the last attempt, or the rejection by the open circuit
+   * @return a future that has already failed with {@code t}
+   */
   public CompletableFuture<SendResult<String, LanguagePreference>> publishFallback(
       LanguagePreference event, Throwable t) {
     log.warn(
