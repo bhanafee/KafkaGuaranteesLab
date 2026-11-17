@@ -283,17 +283,22 @@ messages if the same event is published by multiple instances.
 ### Requirements
 
 - Java 17 or higher (Java 25 toolchain used for compilation)
-- A Kafka broker on `localhost:9092`. The included `kafka-local.sh` starts one in a container,
-  using `container`, `podman` or `docker`, whichever it finds first.
+- A Kafka broker on `localhost:9092`. The included `kafka-local.sh` starts one with Apple's
+  [`container`](https://github.com/apple/container) runtime, on macOS with Apple silicon. Any
+  other broker on that port works too.
 
 ### Start
 
 Start a local Kafka broker in KRaft mode (no ZooKeeper), then the application:
 
 ```bash
+container system start       # once, if the container service is not already running
 ./kafka-local.sh start
 ./gradlew bootRun
 ```
+
+The first start pulls the `apache/kafka` image. The script creates the `language-preferences` and
+`dead-letters` topics with three partitions each.
 
 ### Send an event and see what happened
 
@@ -333,7 +338,8 @@ Other things to look at:
 ```bash
 curl http://localhost:8080/actuator/circuitbreakers
 curl http://localhost:8080/actuator/retries
-kafka-console-consumer --bootstrap-server localhost:9092 --topic dead-letters --from-beginning
+container exec kafka-guarantees-lab-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic dead-letters --from-beginning
 ```
 
 ### Experiments

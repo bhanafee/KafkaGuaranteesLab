@@ -92,7 +92,7 @@ For CVE patch management, see the `gradle-security-patch` skill. Use `/gradle-se
 
 **Running the application:**
 ```bash
-./kafka-local.sh start       # start local Kafka (KRaft mode, no ZooKeeper); uses container, podman or docker
+./kafka-local.sh start       # start local Kafka (KRaft mode, no ZooKeeper); needs Apple's container and `container system start`
 ./gradlew bootRun            # start the application (expects Kafka on localhost:9092)
 ./kafka-local.sh stop        # stop local Kafka
 ```
