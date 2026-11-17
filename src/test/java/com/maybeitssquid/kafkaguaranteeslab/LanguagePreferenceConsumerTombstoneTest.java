@@ -3,10 +3,10 @@ package com.maybeitssquid.kafkaguaranteeslab;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 import com.maybeitssquid.kafkaguaranteeslab.consumer.LanguagePreferenceConsumer;
+import com.maybeitssquid.kafkaguaranteeslab.consumer.LanguagePreferenceProcessor;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -23,7 +23,8 @@ class LanguagePreferenceConsumerTombstoneTest {
 
   @Test
   void tombstone_isAcknowledged_withoutBeingProcessed() {
-    var consumer = spy(new LanguagePreferenceConsumer());
+    var processor = mock(LanguagePreferenceProcessor.class);
+    var consumer = new LanguagePreferenceConsumer(processor);
     var tombstone =
         new ConsumerRecord<String, LanguagePreference>(
             LanguagePreferenceProducer.TOPIC, 0, 0L, "cust-1", null);
@@ -31,7 +32,7 @@ class LanguagePreferenceConsumerTombstoneTest {
 
     consumer.onMessage(tombstone, ack);
 
-    verify(consumer, never()).process(any());
+    verify(processor, never()).process(any());
     verify(ack).acknowledge();
   }
 }

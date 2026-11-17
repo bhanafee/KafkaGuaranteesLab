@@ -1,8 +1,6 @@
 package com.maybeitssquid.kafkaguaranteeslab.consumer;
 
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-import io.github.resilience4j.retry.annotation.Retry;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,10 +13,21 @@ public class LanguagePreferenceConsumer {
 
   private static final Logger log = LoggerFactory.getLogger(LanguagePreferenceConsumer.class);
 
+  private final LanguagePreferenceProcessor processor;
+
+  public LanguagePreferenceConsumer(LanguagePreferenceProcessor processor) {
+    this.processor = processor;
+  }
+
   /**
    * Consumes language preference events with manual acknowledgment. The offset is committed only
-   * after process() succeeds, or after a pointer to the failed record is written to the dead-letter
-   * topic, guaranteeing at-least-once delivery. Resilience4j retries wrap the downstream call.
+   * after {@link LanguagePreferenceProcessor#process} returns, or after a pointer to the failed
+   * record is written to the dead-letter topic.
+   *
+   * <p>Processing is delegated to a separate bean so that its Resilience4j retry and circuit
+   * breaker apply. It runs on this thread, in this call stack. The processor's fallback absorbs a
+   * failure that outlasts the retries, so an exception reaches this handler only if the fallback
+   * throws too.
    *
    * <p>A record with a null value (a tombstone) is acknowledged without being processed.
    */
@@ -45,8 +54,8 @@ public class LanguagePreferenceConsumer {
         record.partition(),
         record.offset());
     try {
-      process(event);
-      ack.acknowledge(); // commit offset only on success
+      processor.process(event);
+      ack.acknowledge(); // commit offset only once processing has returned
     } catch (Exception ex) {
       log.error(
           "Processing failed — will be retried by error handler: customerId={}",
@@ -57,15 +66,5 @@ public class LanguagePreferenceConsumer {
       // shared dead-letter topic, and only then is the offset committed.
       throw ex;
     }
-  }
-
-  @Retry(name = "languagePreferenceConsumer")
-  @CircuitBreaker(name = "languagePreferenceConsumer")
-  public void process(LanguagePreference event) {
-    // TODO: replace with real downstream call (DB write, HTTP call, etc.)
-    log.info(
-        "Processing language preference: customerId={} locale={}",
-        event.customerId(),
-        event.preferredLanguage());
   }
 }

@@ -109,16 +109,181 @@ While outside the realm of Kafka, if multiple producer instances share the same 
 different PID. The broker deduplicates per-PID, so each instance will send its own messages. This can lead to duplicate
 messages if the same event is published by multiple instances.
 
+## Where Delivery Can Go Wrong
+
+Three questions decide what happens to an event: was it sent, was it processed, and was it
+processed only once. This section answers them in three stages. It starts with neither Kafka
+idempotence nor Resilience4j, then adds idempotence, then adds Resilience4j. The demo itself runs
+with both.
+
+### Stage 1: no idempotence, no Resilience4j
+
+Picture the application stripped down:
+
+- The controller calls `send()` once and reports the outcome: 202 if the broker acknowledges, 503
+  if the send fails.
+- The producer still uses `acks=all` and Kafka's own internal retries, but
+  `enable.idempotence=false`.
+- The consumer calls `process()` once per delivery and commits the offset afterwards. If
+  `process()` throws, the listener container redelivers the record and finally writes a
+  dead-letter pointer.
+
+#### An event might not be sent
+
+- **The broker stays unreachable.** Kafka retries inside `send()` until `delivery.timeout.ms`
+  runs out, then the send fails and the caller gets a 503. The caller holds the only copy.
+- **The application stops mid-publish.** The caller sees a broken connection. Nothing in the
+  application remembers the event.
+- **The outcome is unknown.** A send can fail, or the HTTP response can time out, after the
+  record was written. The caller cannot tell this from the two cases above.
+
+#### An event might not be processed
+
+- **It is dead-lettered.** A record that cannot be deserialized, or that fails every delivery,
+  ends as a pointer in `dead-letters`. It is processed only if someone replays it before
+  retention removes the original.
+- **Retention outruns the consumer.** A record deleted before a lagging consumer reaches it is
+  never read.
+- **It is a tombstone.** The consumer skips records with a null value on purpose.
+
+#### An event might be processed more than once
+
+Two records in the topic for one event:
+
+- **Kafka resends a batch.** The broker writes a batch, the acknowledgment is lost, and the
+  producer's internal retry sends the batch again. The broker appends it a second time.
+- **The caller sends the event again.** After a 503 or a broken connection the caller retries,
+  but the first attempt had been written.
+- **A restarted or second instance sends it again.** Whatever feeds the application replays the
+  event after a restart, or two instances both publish it.
+
+One record processed twice:
+
+- **The offset commit is lost.** `process()` succeeds, the commit fails, and the record is
+  delivered again.
+- **The consumer stops between processing and commit.** After the restart the record is
+  delivered again.
+- **The group rebalances.** Records that were processed but not yet committed go to another
+  consumer.
+- **A delivery fails part-way.** `process()` changes something downstream and then throws. The
+  redelivery repeats the change.
+
+#### Events might arrive out of order
+
+- **A resent batch lands late.** With several requests in flight, a batch that Kafka retries can
+  be written behind a batch that was sent after it.
+
+### Stage 2: turn on idempotence
+
+With `enable.idempotence=true` the producer gets a producer id and numbers every record it sends
+to a partition. The broker remembers the last numbers it wrote for that producer
+(see [A Quick Peek Under the Covers](#a-quick-peek-under-the-covers)).
+
+This fixes two scenarios:
+
+- **Kafka resends a batch.** The broker recognises the sequence numbers and drops the repeat.
+- **A resent batch lands late.** The broker accepts a producer's batches only in sequence, so
+  order within a partition is kept.
+
+It changes none of the others:
+
+- **Every "not sent" scenario.** Idempotence removes duplicates. It does not make a failed send
+  succeed or tell the caller what happened.
+- **Every "not processed" scenario.** These happen on the consumer side.
+- **The caller sends the event again.** This looks like the scenario idempotence fixes, but it is
+  a new call to `send()`. A new call gets a new sequence number, so to the broker it is a new
+  record (see [Timeout and Retry](#timeout-and-retry)).
+- **A restarted or second instance sends it again.** A new producer gets a new producer id, and
+  the broker deduplicates per producer id (see
+  [Boundaries after Restart](#boundaries-after-restart) and
+  [Duplicate Producer Processes](#duplicate-producer-processes)).
+- **Every "one record processed twice" scenario.** Idempotence covers the hop from producer to
+  broker. Offset commits and redelivery are outside it.
+
+Idempotence protects one hop against one failure: a lost acknowledgment inside a single call to
+`send()`.
+
+### Stage 3: add Resilience4j
+
+Resilience4j adds a retry and a circuit breaker on each side. They reduce how often some of the
+remaining scenarios happen. They remove none of them, and they bring costs of their own.
+
+On the producer side:
+
+- **The broker stays unreachable** happens less often. The retry repeats a failed publish up to 3
+  times, so a short outage no longer reaches the caller as a 503. A longer one still does.
+- **The retry is itself a source of duplicates.** Each attempt is a new call to `send()`, exactly
+  like a caller that sends the event again. If an earlier attempt was written, the topic holds
+  both.
+- **The circuit breaker sends nothing.** While the broker is down it fails publishes at once, so
+  callers get a quick 503 and do not wait through timeouts. It can also reject publishes that
+  would have succeeded.
+
+On the consumer side:
+
+- **It is dead-lettered** happens less often. The retry repeats `process()` within one delivery,
+  so a brief downstream failure no longer costs a redelivery or a dead letter.
+- **The retry slows the consumer.** It waits on the listener thread. Lag grows, which makes
+  **retention outruns the consumer** and **the group rebalances** more likely.
+- **A delivery fails part-way** is unchanged. A retry repeats a partial downstream change just as
+  a redelivery does.
+- **The fallback decides what happens to an event that cannot be processed.** As written it logs
+  and returns, so the record is acknowledged unprocessed. That adds a way for an event to go
+  unprocessed, with no dead-letter pointer. A fallback that throws would send the record to
+  redelivery and the dead-letter topic
+  (see [Consumer processing failures](#consumer-processing-failures)).
+
+Resilience4j does nothing for these:
+
+- **The application stops mid-publish** and **the outcome is unknown.**
+- **The caller sends the event again** and **a restarted or second instance sends it again.**
+- **The offset commit is lost** and **the consumer stops between processing and commit.**
+
+### Summary
+
+| Scenario | Outcome | Idempotence | Resilience4j |
+|---|---|---|---|
+| The broker stays unreachable | Not sent | No effect | Less often |
+| The application stops mid-publish | Not sent | No effect | No effect |
+| The outcome is unknown | Not sent, or sent twice | No effect | No effect |
+| It is dead-lettered | Not processed | No effect | Less often |
+| Retention outruns the consumer | Not processed | No effect | More likely |
+| The fallback acknowledges a failed event | Not processed | No effect | New with Resilience4j |
+| Kafka resends a batch | Processed twice | Fixed | No effect |
+| The caller sends the event again | Processed twice | No effect | No effect |
+| The application retries a publish | Processed twice | No effect | New with Resilience4j |
+| A restarted or second instance sends it again | Processed twice | No effect | No effect |
+| The offset commit is lost | Processed twice | No effect | No effect |
+| The consumer stops between processing and commit | Processed twice | No effect | No effect |
+| The group rebalances | Processed twice | No effect | More likely |
+| A delivery fails part-way | Processed twice | No effect | No effect |
+| A resent batch lands late | Out of order | Fixed | No effect |
+
+What is left is at-least-once delivery with gaps. Closing them takes changes outside Kafka's
+producer settings:
+
+- **Duplicates:** give every event its own id and have the consumer ignore an id it has already
+  processed. That covers every "processed twice" row, whichever tier caused it.
+- **Unsent events:** store the event durably before publishing, as in a transactional outbox.
+- **Unprocessed events:** never acknowledge a record that was not processed. Here that means a
+  fallback that throws.
+
 ## What This Demo Shows
 
 - **`acks=all` with idempotent producer**: `enable.idempotence=true` with unlimited retries ensures
   at least one durable write while preventing duplicates from Kafka-level retries
-- **Manual offset commit**: `AckMode.MANUAL_IMMEDIATE` commits the offset only after `process()`
-  succeeds; a crash before `ack.acknowledge()` causes redelivery, not loss
+- **Manual offset commit**: `AckMode.MANUAL_IMMEDIATE` commits the offset only after
+  `LanguagePreferenceProcessor.process()` returns; a crash before `ack.acknowledge()` causes
+  redelivery, not loss
 - **Tombstones skipped**: a record with a null value carries no preference, so the consumer
   acknowledges it without processing it and without dead-lettering it
 - **Application-layer retry**: Resilience4j `@Retry` on both producer and consumer handles transient
-  downstream failures (3 attempts, 1 s wait each)
+  downstream failures (3 attempts, 1 s wait each). On the consumer side the annotations sit on a
+  separate bean, `LanguagePreferenceProcessor`, because Resilience4j works through the Spring
+  proxy and a call within one object bypasses it
+- **Fallback trade-off**: when consumer processing fails on every retry, the processor's fallback
+  logs the error and does not throw, so the record is acknowledged unprocessed
+  (see [Consumer processing failures](#consumer-processing-failures))
 - **Circuit breaker isolation**: independent Resilience4j `@CircuitBreaker` instances protect
   against cascading failure; while the producer circuit is open, publishes fail fast
 - **Failure surfaced to the caller**: the HTTP endpoint responds 202 only after the broker
@@ -207,7 +372,7 @@ flowchart TD
 
     subgraph Consumer["Consumer side"]
         CONS["LanguagePreferenceConsumer.onMessage()<br/>AckMode.MANUAL_IMMEDIATE"]
-        PROC["process()<br/>@Retry + @CircuitBreaker"]
+        PROC["LanguagePreferenceProcessor.process()<br/>@Retry + @CircuitBreaker + fallback"]
         ACK["ack.acknowledge()<br/>commit offset"]
         EH["DefaultErrorHandler<br/>FixedBackOff 1 s · 2 redeliveries"]
         REC["DeadLetterPointerRecoverer"]
@@ -234,7 +399,7 @@ sequenceDiagram
     participant Prod as LanguagePreferenceProducer
     participant K as Kafka
     participant Cons as LanguagePreferenceConsumer
-    participant Proc as process()
+    participant Proc as LanguagePreferenceProcessor
 
     Client->>Ctrl: POST /language-preferences
     Ctrl->>Prod: publish(event)
@@ -255,13 +420,15 @@ sequenceDiagram
 sequenceDiagram
     participant K as Kafka (language-preferences)
     participant Cons as LanguagePreferenceConsumer
-    participant Proc as process()
+    participant Proc as LanguagePreferenceProcessor
     participant EH as DefaultErrorHandler
     participant Rec as DeadLetterPointerRecoverer
     participant DLT as Kafka (dead-letters)
 
+    Note over Proc: the fallback throws in this scenario
     K->>Cons: onMessage(record) [delivery 1]
     Cons->>Proc: process(event)
+    Note over Proc: 3 attempts fail, then the fallback throws
     Proc-->>Cons: throws exception
     Cons->>EH: rethrow (no ack)
     Note over EH: FixedBackOff — wait 1 s, redeliver
@@ -278,6 +445,32 @@ sequenceDiagram
     EH->>K: commit offset + 1
     Note over K: the record stays in language-preferences
 ```
+
+The diagram shows a delivery that fails. With the fallback as written, a processing failure does
+not get this far: see [Consumer processing failures](#consumer-processing-failures). Deliveries
+fail when the fallback throws, when the acknowledgment fails, or when a payload cannot be
+deserialized.
+
+### Consumer processing failures
+
+`LanguagePreferenceConsumer.onMessage()` hands each event to
+`LanguagePreferenceProcessor.process()`. That is where a real implementation would make its
+downstream calls, such as a database write or an HTTP request. Everything in it runs on the
+consumer thread, in the call stack of `onMessage()`. A processing failure passes through three
+stages:
+
+1. **Resilience4j retry.** `process()` is attempted up to 3 times within one delivery, 1 s apart.
+   The consumer thread waits in between, and nothing else is read from the partition.
+2. **Fallback.** When every attempt has failed, or the circuit is open, `processFallback()` runs.
+   It logs the error and does not throw. `onMessage()` then acknowledges the record.
+3. **Redelivery and dead-lettering.** These apply only if an exception reaches `onMessage()`,
+   which for a processing failure means the fallback threw as well.
+
+The fallback as written therefore trades the delivery guarantee for progress: an event that
+cannot be processed is acknowledged and dropped, and the error log is the only trace of it. It is
+neither redelivered nor dead-lettered. A fallback that throws keeps the guarantee: the record is
+redelivered and, after the redeliveries are exhausted, gets a dead-letter pointer. Each
+redelivery repeats the 3 attempts, so a record is tried up to 9 times before it is dead-lettered.
 
 ### Dead-letter pointers
 
@@ -403,13 +596,18 @@ half-open state; the consumer leaves this at the Resilience4j default of 10.
 
 #### Retry defaults
 
-Both instances: 3 attempts, 1 s fixed wait, retries on any `Exception`.
+Both instances: 3 attempts, 1 s fixed wait, retries on any `Exception`. The producer's retry
+ignores `CallNotPermittedException`, so a publish fails at once while its circuit is open.
+
+Each fallback is declared on `@Retry`, the outer of the two annotations, so it runs once after
+the last attempt and not once per attempt.
 
 ### DefaultErrorHandler
 
 `FixedBackOff(1 s, 2 attempts)` — up to 2 redeliveries (3 deliveries in total) before a pointer to
 the message is written to the dead-letter topic. This operates at the Kafka listener container
-layer, independently of the Resilience4j retry inside `process()`.
+layer, around the Resilience4j retry inside `LanguagePreferenceProcessor.process()`, and only for
+exceptions that reach `onMessage()`.
 
 | Setting | Value | Purpose |
 |---|---|---|
@@ -435,6 +633,7 @@ treeView-beta
                 "consumer"
                     "DeadLetterPointerRecoverer.java"
                     "LanguagePreferenceConsumer.java"
+                    "LanguagePreferenceProcessor.java"
                 "producer"
                     "LanguagePreferenceProducer.java"
                     "LanguagePreferenceController.java"

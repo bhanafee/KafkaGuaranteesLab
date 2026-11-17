@@ -7,7 +7,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import com.maybeitssquid.kafkaguaranteeslab.consumer.LanguagePreferenceConsumer;
+import com.maybeitssquid.kafkaguaranteeslab.consumer.LanguagePreferenceProcessor;
 import com.maybeitssquid.kafkaguaranteeslab.model.DeadLetterPointer;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
@@ -39,10 +39,16 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  * written to the shared dead-letter topic, the offset is then committed, and the pointer leads back
  * to the original record in the source topic.
  *
- * <p>The retry interval is shortened. The attempt count (max-attempts 2) still comes from
- * application.yml.
+ * <p>A delivery fails only when an exception reaches {@code onMessage}. The processor's fallback
+ * normally absorbs a processing failure, so here the fallback is made to throw as well.
+ *
+ * <p>The retry intervals are shortened. The attempt counts still come from application.yml.
  */
-@SpringBootTest(properties = "spring.kafka.consumer.retry.interval-ms=100")
+@SpringBootTest(
+    properties = {
+      "spring.kafka.consumer.retry.interval-ms=100",
+      "resilience4j.retry.instances.languagePreferenceConsumer.wait-duration=10ms"
+    })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @EmbeddedKafka(
     partitions = 1,
@@ -58,11 +64,14 @@ class LanguagePreferenceConsumerDeadLetterTest {
   @Value("${spring.kafka.consumer.dead-letter.topic}")
   private String deadLetterTopic;
 
-  @MockitoSpyBean private LanguagePreferenceConsumer consumer;
+  @MockitoSpyBean private LanguagePreferenceProcessor processor;
 
   @Test
   void exhaustedRetries_writePointerToDeadLetterTopic_andCommitOffset() throws Exception {
-    doThrow(new IllegalStateException("downstream unavailable")).when(consumer).process(any());
+    doThrow(new IllegalStateException("downstream unavailable")).when(processor).process(any());
+    doThrow(new IllegalStateException("downstream unavailable"))
+        .when(processor)
+        .processFallback(any(), any());
 
     var published = new LanguagePreference("cust-1", Locale.FRENCH);
     producer.publish(published).get(5, TimeUnit.SECONDS);
@@ -76,8 +85,9 @@ class LanguagePreferenceConsumerDeadLetterTest {
     assertThat(pointer.exceptionClass()).isEqualTo(IllegalStateException.class.getName());
     assertThat(pointer.exceptionMessage()).isEqualTo("downstream unavailable");
 
-    // One delivery plus max-attempts (2) redeliveries.
-    verify(consumer, times(3)).process(any());
+    // One delivery plus max-attempts (2) redeliveries, each with 3 Resilience4j attempts.
+    verify(processor, times(9)).process(any());
+    verify(processor, times(3)).processFallback(any(), any());
     // The failed record is skipped only after its pointer is written.
     awaitUntil(() -> committedOffset() == 1, Duration.ofSeconds(10));
 

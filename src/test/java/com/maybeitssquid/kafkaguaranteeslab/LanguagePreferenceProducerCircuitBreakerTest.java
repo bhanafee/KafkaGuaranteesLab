@@ -16,6 +16,7 @@ import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.retry.RetryRegistry;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -55,6 +56,7 @@ class LanguagePreferenceProducerCircuitBreakerTest {
 
   @Autowired private LanguagePreferenceProducer producer;
   @Autowired private CircuitBreakerRegistry circuitBreakerRegistry;
+  @Autowired private RetryRegistry retryRegistry;
 
   @MockitoBean private KafkaTemplate<String, LanguagePreference> kafkaTemplate;
 
@@ -98,11 +100,16 @@ class LanguagePreferenceProducerCircuitBreakerTest {
     openCircuit(event);
 
     clearInvocations(kafkaTemplate);
+    var retryMetrics = retryRegistry.retry(CIRCUIT_BREAKER).getMetrics();
+    long notRetriedBefore = retryMetrics.getNumberOfFailedCallsWithoutRetryAttempt();
     var future = producer.publish(event);
 
     assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
         .hasCauseInstanceOf(CallNotPermittedException.class);
     verify(kafkaTemplate, never()).send(eq(LanguagePreferenceProducer.TOPIC), anyString(), any());
+    // The retry ignores the rejection, so an open circuit fails the publish without retrying.
+    assertThat(retryMetrics.getNumberOfFailedCallsWithoutRetryAttempt() - notRetriedBefore)
+        .isEqualTo(1);
   }
 
   @Test
