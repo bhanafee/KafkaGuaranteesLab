@@ -87,3 +87,6 @@ resilience4j:
         wait-duration: 1s
         retry-exceptions:
           - java.lang.Exception
+        # As for the producer. The fallback still runs for a rejected call, at once.
+        ignore-exceptions:
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
