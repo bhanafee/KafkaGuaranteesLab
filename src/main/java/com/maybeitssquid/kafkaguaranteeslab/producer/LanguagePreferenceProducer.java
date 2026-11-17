@@ -1,9 +1,11 @@
 package com.maybeitssquid.kafkaguaranteeslab.producer;
 
+import com.maybeitssquid.kafkaguaranteeslab.lab.FaultInjector;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import java.util.concurrent.CompletableFuture;
+import org.apache.kafka.common.errors.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -52,9 +54,18 @@ public class LanguagePreferenceProducer {
   public static final String TOPIC = "language-preferences";
 
   private final KafkaTemplate<String, LanguagePreference> kafkaTemplate;
+  private final FaultInjector faults;
 
-  public LanguagePreferenceProducer(KafkaTemplate<String, LanguagePreference> kafkaTemplate) {
+  /**
+   * Creates the producer.
+   *
+   * @param kafkaTemplate sends the records
+   * @param faults supplies injected ambiguous sends
+   */
+  public LanguagePreferenceProducer(
+      KafkaTemplate<String, LanguagePreference> kafkaTemplate, FaultInjector faults) {
     this.kafkaTemplate = kafkaTemplate;
+    this.faults = faults;
   }
 
   /**
@@ -90,15 +101,28 @@ public class LanguagePreferenceProducer {
   @CircuitBreaker(name = "languagePreferenceProducer")
   public CompletableFuture<SendResult<String, LanguagePreference>> publish(
       LanguagePreference event) {
-    log.info("Publishing event: customerId={}", event.customerId());
+    log.info("Publishing event: eventId={} customerId={}", event.eventId(), event.customerId());
     return kafkaTemplate
         .send(TOPIC, event.customerId(), event)
+        .thenApply(result -> {
+          if (faults.takeAmbiguousSend()) {
+            // The record is in the topic, but the caller is told the send failed. This is what a
+            // send looks like when its acknowledgment is lost and the delivery timeout runs out.
+            throw new TimeoutException("Injected fault: record written, acknowledgment lost");
+          }
+          return result;
+        })
         .whenComplete((result, ex) -> {
           if (ex != null) {
-            log.error("Failed to publish event: customerId={}", event.customerId(), ex);
+            log.error(
+                "Failed to publish event: eventId={} customerId={}",
+                event.eventId(),
+                event.customerId(),
+                ex);
           } else {
             log.info(
-                "Published event: customerId={} partition={} offset={}",
+                "Published event: eventId={} customerId={} partition={} offset={}",
+                event.eventId(),
                 event.customerId(),
                 result.getRecordMetadata().partition(),
                 result.getRecordMetadata().offset());
@@ -122,7 +146,8 @@ public class LanguagePreferenceProducer {
   public CompletableFuture<SendResult<String, LanguagePreference>> publishFallback(
       LanguagePreference event, Throwable t) {
     log.warn(
-        "Publish failed — event not sent: customerId={} reason={}",
+        "Publish failed — event not confirmed: eventId={} customerId={} reason={}",
+        event.eventId(),
         event.customerId(),
         t.getMessage());
     return CompletableFuture.failedFuture(t);

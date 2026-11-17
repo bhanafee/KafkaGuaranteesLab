@@ -44,7 +44,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  */
 @SpringBootTest(
     properties = "resilience4j.retry.instances.languagePreferenceProducer.wait-duration=10ms")
-@DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
+@DirtiesContext
 @EmbeddedKafka(
     partitions = 1,
     topics = {LanguagePreferenceProducer.TOPIC})
@@ -86,7 +86,7 @@ class LanguagePreferenceProducerCircuitBreakerTest {
 
   @BeforeEach
   void resetCircuitBreaker() {
-    // The circuit breaker is a singleton shared by every test in this context.
+    // The tests share one context, and with it one circuit breaker.
     circuitBreaker = circuitBreakerRegistry.circuitBreaker(CIRCUIT_BREAKER);
     circuitBreaker.reset();
   }

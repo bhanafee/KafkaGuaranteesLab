@@ -1,0 +1,19 @@
+# Stage 2 of the lab: Kafka idempotence on, Resilience4j off.
+# Run with: ./gradlew bootRun --args='--spring.profiles.active=stage2'
+lab:
+  producer:
+    idempotence: true
+  consumer:
+    # Without a retry to exhaust, a failed delivery goes straight to redelivery and dead-lettering.
+    fallback: rethrow
+  circuit-breakers:
+    enabled: false
+
+resilience4j:
+  retry:
+    instances:
+      # One attempt means no retry.
+      languagePreferenceProducer:
+        max-attempts: 1
+      languagePreferenceConsumer:
+        max-attempts: 1

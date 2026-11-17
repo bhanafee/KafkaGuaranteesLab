@@ -1,5 +1,6 @@
 package com.maybeitssquid.kafkaguaranteeslab.consumer;
 
+import com.maybeitssquid.kafkaguaranteeslab.lab.FaultInjector;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
@@ -14,9 +15,17 @@ public class LanguagePreferenceConsumer {
   private static final Logger log = LoggerFactory.getLogger(LanguagePreferenceConsumer.class);
 
   private final LanguagePreferenceProcessor processor;
+  private final FaultInjector faults;
 
-  public LanguagePreferenceConsumer(LanguagePreferenceProcessor processor) {
+  /**
+   * Creates the consumer.
+   *
+   * @param processor processes each event
+   * @param faults supplies injected lost commits
+   */
+  public LanguagePreferenceConsumer(LanguagePreferenceProcessor processor, FaultInjector faults) {
     this.processor = processor;
+    this.faults = faults;
   }
 
   /**
@@ -49,12 +58,18 @@ public class LanguagePreferenceConsumer {
       return;
     }
     log.info(
-        "Received event: customerId={} partition={} offset={}",
+        "Received event: eventId={} customerId={} partition={} offset={}",
+        event.eventId(),
         event.customerId(),
         record.partition(),
         record.offset());
     try {
       processor.process(event);
+      if (faults.takeLostCommit()) {
+        // The event has been processed, but the offset is not committed. The record is delivered
+        // again, as it would be after a lost commit or a consumer that stopped at this point.
+        throw new IllegalStateException("Injected fault: offset commit lost");
+      }
       ack.acknowledge(); // commit offset only once processing has returned
     } catch (Exception ex) {
       log.error(

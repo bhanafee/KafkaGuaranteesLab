@@ -1,7 +1,7 @@
 package com.maybeitssquid.kafkaguaranteeslab;
 
+import static com.maybeitssquid.kafkaguaranteeslab.KafkaTestSupport.awaitUntil;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
@@ -14,12 +14,7 @@ import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.AdminClientConfig;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -39,15 +34,21 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  * written to the shared dead-letter topic, the offset is then committed, and the pointer leads back
  * to the original record in the source topic.
  *
- * <p>A delivery fails only when an exception reaches {@code onMessage}. The processor's fallback
- * normally absorbs a processing failure, so here the fallback is made to throw as well.
+ * <p>A delivery fails only when an exception reaches {@code onMessage}. With the default fallback a
+ * processing failure never does, so this test runs with {@code lab.consumer.fallback=rethrow}.
  *
- * <p>The retry intervals are shortened. The attempt counts still come from application.yml.
+ * <p>The retry intervals are shortened. The attempt counts still come from application.yml. The
+ * circuit breaker's window is widened so that the 9 failing calls cannot open the circuit: this
+ * test is about dead-lettering, and an open circuit would change how many calls reach {@code
+ * process()}.
  */
 @SpringBootTest(
     properties = {
-      "spring.kafka.consumer.retry.interval-ms=100",
-      "resilience4j.retry.instances.languagePreferenceConsumer.wait-duration=10ms"
+      "lab.consumer.fallback=rethrow",
+      "lab.consumer.redelivery.interval-ms=100",
+      "resilience4j.retry.instances.languagePreferenceConsumer.wait-duration=10ms",
+      "resilience4j.circuitbreaker.instances.languagePreferenceConsumer.sliding-window-size=100",
+      "resilience4j.circuitbreaker.instances.languagePreferenceConsumer.minimum-number-of-calls=100"
     })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @EmbeddedKafka(
@@ -61,7 +62,7 @@ class LanguagePreferenceConsumerDeadLetterTest {
   @Value("${spring.kafka.consumer.group-id}")
   private String groupId;
 
-  @Value("${spring.kafka.consumer.dead-letter.topic}")
+  @Value("${lab.dead-letter.topic}")
   private String deadLetterTopic;
 
   @MockitoSpyBean private LanguagePreferenceProcessor processor;
@@ -69,14 +70,13 @@ class LanguagePreferenceConsumerDeadLetterTest {
   @Test
   void exhaustedRetries_writePointerToDeadLetterTopic_andCommitOffset() throws Exception {
     doThrow(new IllegalStateException("downstream unavailable")).when(processor).process(any());
-    doThrow(new IllegalStateException("downstream unavailable"))
-        .when(processor)
-        .processFallback(any(), any());
 
     var published = new LanguagePreference("cust-1", Locale.FRENCH);
     producer.publish(published).get(5, TimeUnit.SECONDS);
 
-    DeadLetterPointer pointer = readPointer();
+    var deadLetter = KafkaTestSupport.readDeadLetter(broker, deadLetterTopic);
+    assertThat(deadLetter.key()).isEqualTo(LanguagePreferenceProducer.TOPIC + "-0");
+    DeadLetterPointer pointer = deadLetter.value();
     assertThat(pointer.topic()).isEqualTo(LanguagePreferenceProducer.TOPIC);
     assertThat(pointer.partition()).isZero();
     assertThat(pointer.offset()).isZero();
@@ -93,21 +93,6 @@ class LanguagePreferenceConsumerDeadLetterTest {
 
     // The pointer holds no payload. The record is still in the source topic.
     assertThat(readSource(pointer)).isEqualTo(published);
-  }
-
-  private DeadLetterPointer readPointer() {
-    var props = KafkaTestUtils.consumerProps(broker, "dead-letter-test", true);
-    try (var deadLetters =
-        new KafkaConsumer<>(
-            props,
-            new StringDeserializer(),
-            new JacksonJsonDeserializer<>(DeadLetterPointer.class, false))) {
-      broker.consumeFromAnEmbeddedTopic(deadLetters, deadLetterTopic);
-      ConsumerRecord<String, DeadLetterPointer> record =
-          KafkaTestUtils.getSingleRecord(deadLetters, deadLetterTopic, Duration.ofSeconds(15));
-      assertThat(record.key()).isEqualTo(LanguagePreferenceProducer.TOPIC + "-0");
-      return record.value();
-    }
   }
 
   /** Follows a pointer the way a replay tool would: assign the partition and seek to the offset. */
@@ -129,27 +114,6 @@ class LanguagePreferenceConsumerDeadLetterTest {
   }
 
   private long committedOffset() throws Exception {
-    var config =
-        Map.<String, Object>of(
-            AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker.getBrokersAsString());
-    try (var admin = AdminClient.create(config)) {
-      var offsets =
-          admin
-              .listConsumerGroupOffsets(groupId)
-              .partitionsToOffsetAndMetadata()
-              .get(5, TimeUnit.SECONDS);
-      var partition = new TopicPartition(LanguagePreferenceProducer.TOPIC, 0);
-      return offsets.containsKey(partition) ? offsets.get(partition).offset() : -1;
-    }
-  }
-
-  private static void awaitUntil(Callable<Boolean> condition, Duration timeout) throws Exception {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (!condition.call()) {
-      if (System.nanoTime() > deadline) {
-        fail("condition not met within " + timeout);
-      }
-      Thread.sleep(50);
-    }
+    return KafkaTestSupport.committedOffset(broker, groupId, LanguagePreferenceProducer.TOPIC);
   }
 }
