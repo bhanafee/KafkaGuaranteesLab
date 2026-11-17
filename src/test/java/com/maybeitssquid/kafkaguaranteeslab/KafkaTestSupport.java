@@ -3,6 +3,7 @@ package com.maybeitssquid.kafkaguaranteeslab;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.maybeitssquid.kafkaguaranteeslab.model.DeadLetterPointer;
+import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -11,6 +12,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -19,6 +21,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
+import org.springframework.kafka.test.EmbeddedKafkaKraftBroker;
 import org.springframework.kafka.test.utils.KafkaTestUtils;
 
 /** Helpers shared by the tests that run against the embedded broker. */
@@ -54,6 +57,27 @@ final class KafkaTestSupport {
             .run(args.toArray(String[]::new));
     awaitUntil(() -> hasPartitions(app), Duration.ofSeconds(60));
     return app;
+  }
+
+  /**
+   * Starts a broker that advertises the proxy's port, so that every client connection passes
+   * through the proxy, and creates the lab's topics on it. Clients connect to {@code "localhost:" +
+   * proxy.port()}.
+   *
+   * <p>The broker is started without topics. Creating them goes through the advertised address,
+   * which is the proxy, and the proxy learns the broker's port only once the broker is up.
+   */
+  static EmbeddedKafkaBroker startBrokerBehind(LostAcknowledgmentProxy proxy) {
+    EmbeddedKafkaBroker broker =
+        new EmbeddedKafkaKraftBroker(1, 3)
+            .brokerProperty("advertised.listeners", "EXTERNAL://localhost:" + proxy.port());
+    broker.afterPropertiesSet();
+    String brokers = broker.getBrokersAsString();
+    proxy.forwardTo(Integer.parseInt(brokers.substring(brokers.lastIndexOf(':') + 1)));
+    broker.addTopics(
+        new NewTopic(LanguagePreferenceProducer.TOPIC, 3, (short) 1),
+        new NewTopic("dead-letters", 3, (short) 1));
+    return broker;
   }
 
   /** Returns whether the instance's listener container has been assigned partitions. */

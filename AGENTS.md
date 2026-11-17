@@ -43,7 +43,7 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 ### Delivery guarantee layering
 
 **Producer side** (`producer/`):
-- `KafkaConfig` sets `acks=all`, idempotence enabled, unlimited retries — Kafka-level at-least-once.
+- `KafkaConfig` sets `acks=all`, idempotence enabled, unlimited retries — Kafka-level at-least-once. It sets `delivery.timeout.ms` from `lab.producer.delivery-timeout-ms` (120000, Kafka's default), which bounds one `send()`. A publish goes on in the background after the controller has answered 503; the README's "How Long a Publish Can Run" gives the limits, so keep it in step with these settings.
 - `LanguagePreferenceProducer` wraps `KafkaTemplate.send()` with Resilience4j `@Retry` + `@CircuitBreaker` (instance name `languagePreferenceProducer`). The `fallbackMethod` (`publishFallback`) is declared on `@Retry`, so it runs once per publish: after the last failed attempt, or at once when the circuit is open, because the producer retry ignores `CallNotPermittedException`. It logs a warning and returns a failed future. There is no producer dead-letter store: one on the same cluster would fail along with the main topic.
 - `LanguagePreferenceController` exposes `POST /language-preferences`. It runs the publish on the task executor and waits for the outcome for at most `lab.publish.response-timeout-ms`. It returns 202 Accepted once the broker acknowledges the event, 503 "Event not published" when the publish fails, and 503 "Event not confirmed" when the outcome is not known in time. Every response carries the event id in the `Event-Id` header.
 
@@ -74,6 +74,7 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 - The container-based consumer tests that assert on committed offsets (`...DeadLetterTest`, `...PoisonPillTest`, `...ProcessingFailureTest`) start a fresh context and broker per test method.
 - `LabRestartTest` runs the scenarios that need a restart or two instances. It starts its own broker and starts and stops application instances against it with `SpringApplicationBuilder`. It replaces the `Crasher` action with one that throws an `Error`, because a test cannot halt its own JVM.
 - `LostAcknowledgmentTest` shows the one difference between stage 1 and stage 2. Its broker advertises the port of `LostAcknowledgmentProxy`, a test-only TCP proxy that reads Kafka's request and response framing and closes the producer's connection in place of forwarding one produce acknowledgment. The broker is started without topics, because creating them goes through the proxy, which needs the broker's port first.
+- `OutcomeUnknownTest` shows that an event answered 503 `Event not confirmed` is processed afterwards. It uses the same proxy to hold the produce request until the caller has its response. `KafkaTestSupport.startBrokerBehind()` starts a broker behind the proxy for both tests.
 - Shared helpers are in `KafkaTestSupport`, including `startApp()` for tests that run application instances against a broker that outlives them.
 - A new scenario in the README's summary table should get a test in `LabScenarioTest`, or an entry under "What the lab cannot reproduce".
 
@@ -97,7 +98,8 @@ For CVE patch management, see the `gradle-security-patch` skill. Use `/gradle-se
 ```bash
 ./kafka-local.sh start       # start local Kafka (KRaft mode, no ZooKeeper); needs Apple's container and `container system start`
 ./gradlew bootRun            # start the application (expects Kafka on localhost:9092)
-./kafka-local.sh stop        # stop local Kafka
+./kafka-local.sh stop        # stop local Kafka and keep its data; the next start resumes the same cluster
+./kafka-local.sh remove      # stop local Kafka and delete its data
 ```
 
 The application publishes `LanguagePreference` events to Kafka and consumes them for processing.

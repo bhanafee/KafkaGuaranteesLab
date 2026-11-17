@@ -58,6 +58,12 @@ public class LanguagePreferenceController {
    * block before it returns a future, for example while it waits for topic metadata from a broker
    * that is down. The wait limit therefore covers that case too.
    *
+   * <p>The wait limit ends the response, not the publish. Nothing cancels a publish whose caller
+   * was answered 503: it goes on until the broker acknowledges the record or the last attempt
+   * fails. The task executor has a fixed number of threads and a queue without a limit, so while
+   * every thread is blocked in {@code send()}, later publishes wait in the queue and start after
+   * their callers were answered.
+   *
    * <p>Neither 503 proves that the event is absent from the topic, so a caller that sends it again
    * can publish a duplicate. Every response carries the event's id in the {@value #EVENT_ID_HEADER}
    * header. A caller that repeats that id in the {@code eventId} field lets the consumer recognise

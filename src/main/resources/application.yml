@@ -14,6 +14,10 @@ lab:
   producer:
     # Kafka's idempotent producer. The stage1 profile turns it off.
     idempotence: true
+    # Kafka's delivery.timeout.ms: how long one send() goes on trying before its future fails.
+    # 120000 is Kafka's default. Kafka rejects a value below linger.ms + request.timeout.ms, which
+    # is 30005 with the defaults the lab leaves in place.
+    delivery-timeout-ms: 120000
   publish:
     # How long POST /language-preferences waits for the publish outcome before answering 503.
     response-timeout-ms: 10000

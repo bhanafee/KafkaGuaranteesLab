@@ -13,13 +13,20 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * A TCP proxy between Kafka clients and a broker that can lose one acknowledgment. It forwards
- * everything in both directions until it is told to drop the next produce acknowledgment. It then
- * lets the next produce request through to the broker, which writes the records, and when the
- * broker's response arrives it closes the client's connection instead of forwarding it.
+ * A TCP proxy between Kafka clients and a broker that can lose one acknowledgment, or hold produce
+ * requests back for a while. It forwards everything in both directions until it is told otherwise.
  *
- * <p>To the producer this is a network failure after the request was sent: it cannot know whether
- * the records were written, and its internal retry sends the batch again on a new connection.
+ * <p><b>Losing an acknowledgment.</b> The proxy lets the next produce request through to the
+ * broker, which writes the records, and when the broker's response arrives it closes the client's
+ * connection instead of forwarding it. To the producer this is a network failure after the request
+ * was sent: it cannot know whether the records were written, and its internal retry sends the batch
+ * again on a new connection.
+ *
+ * <p><b>Holding produce requests.</b> The proxy keeps every produce request that arrives and
+ * forwards none of them until it is told to release them. To the producer this is a broker that has
+ * stopped answering: the send stays in flight, and it completes once the requests are released. A
+ * hold must be shorter than the producer's {@code request.timeout.ms}, or the producer gives up on
+ * the connection.
  *
  * <p>The proxy reads only the framing of the Kafka protocol. Every request and response starts with
  * a 4-byte length. A request continues with a 2-byte API key, a 2-byte version and a 4-byte
@@ -33,6 +40,10 @@ final class LostAcknowledgmentProxy implements AutoCloseable {
   private final Set<Socket> sockets = ConcurrentHashMap.newKeySet();
   private final AtomicBoolean armed = new AtomicBoolean();
   private final AtomicInteger dropped = new AtomicInteger();
+  private final AtomicInteger held = new AtomicInteger();
+  private final Object gate = new Object();
+  // Whether produce requests are being held. Guarded by gate.
+  private boolean holding;
   private volatile int brokerPort;
 
   LostAcknowledgmentProxy() throws IOException {
@@ -60,6 +71,43 @@ final class LostAcknowledgmentProxy implements AutoCloseable {
     return dropped.get();
   }
 
+  /** Holds every produce request that arrives from now on, until they are released. */
+  void holdProduceRequests() {
+    synchronized (gate) {
+      holding = true;
+    }
+  }
+
+  /** Forwards the produce requests that were held, and stops holding new ones. */
+  void releaseProduceRequests() {
+    synchronized (gate) {
+      holding = false;
+      gate.notifyAll();
+    }
+  }
+
+  /** How many produce requests have been held so far, released or not. */
+  int held() {
+    return held.get();
+  }
+
+  /** Waits while produce requests are held. Returns at once if they are not. */
+  private void awaitRelease() throws IOException {
+    synchronized (gate) {
+      if (holding) {
+        held.incrementAndGet();
+      }
+      while (holding) {
+        try {
+          gate.wait();
+        } catch (InterruptedException ex) {
+          Thread.currentThread().interrupt();
+          throw new IOException("Interrupted while holding a produce request", ex);
+        }
+      }
+    }
+  }
+
   private void accept() {
     while (!server.isClosed()) {
       try {
@@ -84,8 +132,11 @@ final class LostAcknowledgmentProxy implements AutoCloseable {
       while (true) {
         byte[] frame = readFrame(in);
         ByteBuffer header = ByteBuffer.wrap(frame);
-        if (header.getShort(0) == PRODUCE && armed.compareAndSet(true, false)) {
-          toDrop.add(header.getInt(4));
+        if (header.getShort(0) == PRODUCE) {
+          awaitRelease();
+          if (armed.compareAndSet(true, false)) {
+            toDrop.add(header.getInt(4));
+          }
         }
         writeFrame(out, frame);
       }
@@ -133,6 +184,7 @@ final class LostAcknowledgmentProxy implements AutoCloseable {
 
   @Override
   public void close() throws IOException {
+    releaseProduceRequests();
     server.close();
     for (Socket socket : sockets) {
       socket.close();

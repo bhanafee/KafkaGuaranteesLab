@@ -172,7 +172,7 @@ On the producer side:
   such as a record that is too large, and a second attempt gives the same result.
 - **The outcome is unknown** for longer. The 3 attempts go on in the background after the 503, each
   for up to 120 s. An event can reach the topic about 6 minutes after its caller was told it was
-  not confirmed.
+  not confirmed (see [How Long a Publish Can Run](#how-long-a-publish-can-run)).
 - **The retry is itself a source of duplicates.** Each attempt is a new call to `send()`, exactly
   like a caller that sends the event again. If an earlier attempt was written, the topic holds
   both.
@@ -286,6 +286,54 @@ cases:
 The first case returns one tier up. `POST /language-preferences` waits 10 s for the outcome and
 then answers 503 while the send is still in flight. A caller that sends the event again races it.
 
+#### How Long a Publish Can Run
+
+The 503 `Event not confirmed` ends the HTTP response. It does not end the publish. Nothing cancels
+a publish whose caller has been answered: it goes on in the background until the broker
+acknowledges the record or the last attempt fails. For all of that time the event can still reach
+the topic.
+
+These settings bound it:
+
+| What | Bound | Set by |
+|---|---|---|
+| Attempts | 3 | `resilience4j.retry.instances.languagePreferenceProducer.max-attempts` |
+| Wait between attempts | 1 s | `resilience4j.retry.instances.languagePreferenceProducer.wait-duration` |
+| One attempt, from `send()` accepting the record to its future failing | 120 s | `lab.producer.delivery-timeout-ms`, which is Kafka's `delivery.timeout.ms` |
+| One attempt, `send()` waiting for the topic's metadata before it accepts the record | 60 s | Kafka's `max.block.ms`, left at its default |
+
+What they add up to depends on whether the producer has the topic's metadata:
+
+- **The producer has the metadata.** This is the usual case when the broker goes down under a
+  running application. `send()` accepts the record at once and Kafka tries to deliver it for
+  120 s. Three attempts and two waits take 3 × 120 s + 2 × 1 s = 362 s, about 6 minutes. The record
+  is written if the broker comes back at any moment in that time.
+- **The producer has no metadata.** This is the case when the application has published nothing
+  since it started, or nothing for 5 minutes (`metadata.max.idle.ms`), and the broker is down.
+  `send()` blocks its thread for 60 s and then throws. Nothing was sent, so this attempt wrote
+  nothing. Three attempts and two waits take 3 × 60 s + 2 × 1 s = 182 s, about 3 minutes. If the
+  broker comes back while `send()` is blocked, the attempt goes on as in the first case.
+
+The two can follow each other within one attempt, so the limit for one publish is
+3 × (60 s + 120 s) + 2 × 1 s = 542 s, about 9 minutes. Two things end a publish sooner. An open
+circuit rejects the next attempt at once, and the retry does not repeat a rejected call. Stopping
+the application discards every record that is still in the producer's memory.
+
+That limit starts when the publish starts to run, and the start can be late. A `send()` that
+blocks holds a thread:
+
+- The first attempt runs on a thread of Spring Boot's task executor, which the lab leaves at its
+  defaults: 8 threads and a queue with no limit. Once 8 publishes are blocked in `send()`, every
+  later publish waits in the queue. Its caller still gets 503 `Event not confirmed` after 10 s. The
+  publish itself starts when a thread is free, however long that takes, and nothing removes it
+  from the queue.
+- The second and third attempts run on Resilience4j's retry scheduler, a second small thread pool,
+  and block its threads in the same way.
+
+So while the broker is down and the producer has no metadata, the application takes in events
+faster than it gives up on them. It can go on publishing them long after the last caller was
+answered. The lab does not bound this queue.
+
 #### Signs of a Failed Send
 
 With `acks=all`, the caller of `send()` sees one of these when a send has not been confirmed:
@@ -348,6 +396,18 @@ The first start pulls the `apache/kafka` image. The script creates the `language
 `dead-letters` topics with three partitions each. The application creates the `lab-ledger` topic
 itself. Without a broker the application still starts, after waiting `lab.ledger.timeout-ms` for
 the ledger.
+
+The script has four commands:
+
+| Command | What it does |
+|---|---|
+| `./kafka-local.sh start` | Starts the broker. A broker that was stopped comes back with its data: topics, records, committed offsets and the ledger |
+| `./kafka-local.sh stop` | Stops the broker and keeps its data |
+| `./kafka-local.sh remove` | Stops the broker and deletes its data. The next `start` makes a new, empty cluster |
+| `./kafka-local.sh status` | Shows whether the broker is running, stopped or absent, and lists the topics of a running one |
+
+The data is kept inside the stopped container, not in a volume, so anything else that removes the
+container removes the data.
 
 ### Send an event and see what happened
 
@@ -414,7 +474,7 @@ curl -X POST http://localhost:8080/lab/faults \
 | A delivery fails part-way | `{"partialFailures": 1}`, then send one event. The first attempt records the event and then fails, and the retry records it again | The event under `duplicates`, with 2 |
 | The fallback acknowledges a failed event | `{"processingFailures": 3}`, then send one event. All 3 attempts fail | The event under `dropped` |
 | It is dead-lettered | Start with the `stage2` profile (see [Stages](#stages)). `{"processingFailures": 3}`, then send one event. All 3 deliveries fail | Nothing in the ledger, and a pointer in `dead-letters` |
-| The outcome is unknown | Stop the broker with `./kafka-local.sh stop`, then send one event | 503 `Event not confirmed` after 10 s |
+| The outcome is unknown | Send one event and wait for its 202. Stop the broker with `./kafka-local.sh stop`, then send a second event for another customer: 503 `Event not confirmed` after 10 s. Within 2 minutes, start the broker again with `./kafka-local.sh start` | The second event in the ledger, under `preferences`, although its caller was told 503 |
 | The consumer stops between processing and commit | `{"crashBeforeCommit": 1}`, then send one event. The application processes it and stops. Start the application again | The event under `duplicates`, with 2 |
 | The application stops mid-publish | `{"crashBeforeSend": 1}`, then send one event. The application stops and `curl` reports an empty reply. Start the application again | The event is not in the ledger |
 | A restarted or second instance sends it again | Start a second instance (see [A second instance](#a-second-instance)). Send one event to port 8080, then the same event with its `eventId` to port 8081 | The event under `duplicates`, with 2, on both ports |
@@ -428,6 +488,26 @@ failure counts toward the consumer's circuit breaker. Enough of them open the ci
 record is then dead-lettered for a rejected call and not for the injected fault. Injected
 failures count toward the circuit breakers in every experiment, so check
 `/actuator/circuitbreakers` if a result is not what the table says.
+
+In the outcome-unknown experiment the 503 says only that the wait of
+`lab.publish.response-timeout-ms` is over. The record stays in the producer's memory, and Kafka
+goes on trying to send it until `lab.producer.delivery-timeout-ms` runs out, 120 s later. When the
+broker is back within that time, the producer reconnects and writes the record, and the application
+logs `Published event` for an event whose caller was answered 503 some time before. Three points
+about running it:
+
+- **The broker must keep its data.** `./kafka-local.sh stop` keeps it. The ledger is itself a
+  Kafka topic, and so are the consumer's committed offsets. After `./kafka-local.sh remove` the
+  next `start` makes an empty cluster: the ledger is gone, the lab's topics are new, and the result
+  is not the one in the table.
+- **The first event is there to load the producer's metadata.** Without it the experiment ends the
+  same way by another route: `send()` blocks until the broker is back, and then sends.
+- **A broker that comes back later still gets the event,** as long as an attempt is still running.
+  [How Long a Publish Can Run](#how-long-a-publish-can-run) gives the limits.
+
+To add the caller's retry to the experiment, send the second event again with its `eventId` while
+the broker is down. Both sends wait in the producer, both are written when the broker is back, and
+the event appears under `duplicates`, with 2.
 
 The `lostCommits` fault fails the delivery after `process()` has returned, and the error handler
 redelivers the record after its backoff. That is what a consumer sees after it stopped between processing
@@ -456,10 +536,12 @@ Pass a setting on the command line like this:
 ./gradlew bootRun --args='--lab.consumer.deduplicate=true'
 ```
 
-`LabScenarioTest`, `LabDeduplicationTest`, `LabStageOneTest` and `LabRestartTest` run these
-experiments automatically, apart from stopping the broker. `LabRestartTest` starts and stops
+`LabScenarioTest`, `LabDeduplicationTest`, `LabStageOneTest`, `LabRestartTest` and
+`OutcomeUnknownTest` run these experiments automatically. `LabRestartTest` starts and stops
 application instances against one broker. It cannot halt its own JVM, so its crash ends the
-thread concerned and leaves the record unacknowledged.
+thread concerned and leaves the record unacknowledged. `OutcomeUnknownTest` does not stop the
+broker. It holds the produce request in the proxy described under [Stages](#stages) until the
+caller has its 503, then lets it through.
 
 ### Stages
 
@@ -522,8 +604,12 @@ Some scenarios need a fault outside the application, and the lab does not create
 ### Stop
 
 ```bash
-./kafka-local.sh stop
+./kafka-local.sh stop        # stop the broker and keep its data
+./kafka-local.sh remove      # or: stop the broker and delete its data
 ```
+
+After `stop`, the next `start` brings back the same cluster, with the ledger and the committed
+offsets as they were. Use `remove` to start again from an empty cluster.
 
 ## Architecture
 
@@ -760,7 +846,8 @@ known in time. The caller still holds the event and decides whether to retry.
 | `acks` | `all` | All in-sync replicas must acknowledge before the send completes |
 | `enable.idempotence` | `true` | Prevents duplicate records from broker-level retries. Set by `lab.producer.idempotence` |
 | `retries` | `Integer.MAX_VALUE` | Retries transient errors until `delivery.timeout.ms` elapses; the time bound, not the count, limits retries |
-| `delivery.timeout.ms` | `120000` (default) | Upper bound on a single send, including all internal retries; not overridden in `KafkaConfig` |
+| `delivery.timeout.ms` | `120000` | Upper bound on a single send, from the moment `send()` accepts the record, including all internal retries. Set by `lab.producer.delivery-timeout-ms`. The value is Kafka's default |
+| `max.block.ms` | `60000` (default) | How long `send()` blocks while it waits for the topic's metadata; not set in `KafkaConfig` |
 | `max.in.flight.requests.per.connection` | `5` | Maximum allowed with idempotence enabled |
 
 ### Kafka consumer
@@ -792,7 +879,8 @@ ignores `CallNotPermittedException`, so a publish fails at once while its circui
 
 A producer attempt lasts as long as one `send()`, which Kafka bounds with `delivery.timeout.ms`.
 The 3 attempts and 2 waits can therefore take about 6 minutes, and they continue after
-`POST /language-preferences` has answered 503.
+`POST /language-preferences` has answered 503
+(see [How Long a Publish Can Run](#how-long-a-publish-can-run)).
 
 Each fallback is declared on `@Retry`, the outer of the two annotations, so it runs once after
 the last attempt and not once per attempt.
@@ -820,6 +908,7 @@ properties.
 | Setting | Default | Purpose |
 |---|---|---|
 | `lab.producer.idempotence` | `true` | Kafka's idempotent producer. Off in the `stage1` profile |
+| `lab.producer.delivery-timeout-ms` | `120000` | Kafka's `delivery.timeout.ms`: how long one `send()` goes on trying before it fails. It applies to events and to dead-letter pointers. Kafka requires at least `linger.ms` + `request.timeout.ms`, which is 30005 with the defaults used here. A lower value makes every send fail with a `ConfigException` |
 | `lab.circuit-breakers.enabled` | `true` | Off in the `stage1` and `stage2` profiles |
 | `lab.consumer.fallback` | `acknowledge` | `acknowledge` drops an event that cannot be processed. `rethrow` sends it to redelivery and the dead-letter topic |
 | `lab.consumer.deduplicate` | `false` | Skip an event whose id was already processed |

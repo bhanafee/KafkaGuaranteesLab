@@ -2,6 +2,7 @@ package com.maybeitssquid.kafkaguaranteeslab;
 
 import static com.maybeitssquid.kafkaguaranteeslab.KafkaTestSupport.awaitUntil;
 import static com.maybeitssquid.kafkaguaranteeslab.KafkaTestSupport.startApp;
+import static com.maybeitssquid.kafkaguaranteeslab.KafkaTestSupport.startBrokerBehind;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.maybeitssquid.kafkaguaranteeslab.lab.ProcessingLedger;
@@ -10,12 +11,10 @@ import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
-import org.apache.kafka.clients.admin.NewTopic;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
-import org.springframework.kafka.test.EmbeddedKafkaKraftBroker;
 
 /**
  * The one difference between stage 1 and stage 2 of the lab: what happens when the broker writes a
@@ -38,17 +37,7 @@ class LostAcknowledgmentTest {
   @BeforeAll
   static void startBrokerBehindProxy() throws Exception {
     proxy = new LostAcknowledgmentProxy();
-    // The broker is started without topics. Creating them goes through the advertised address,
-    // which is the proxy, and the proxy learns the broker's port only once the broker is up.
-    broker =
-        new EmbeddedKafkaKraftBroker(1, 3)
-            .brokerProperty("advertised.listeners", "EXTERNAL://localhost:" + proxy.port());
-    broker.afterPropertiesSet();
-    String brokers = broker.getBrokersAsString();
-    proxy.forwardTo(Integer.parseInt(brokers.substring(brokers.lastIndexOf(':') + 1)));
-    broker.addTopics(
-        new NewTopic(LanguagePreferenceProducer.TOPIC, 3, (short) 1),
-        new NewTopic("dead-letters", 3, (short) 1));
+    broker = startBrokerBehind(proxy);
     bootstrapServers = "localhost:" + proxy.port();
   }
 
