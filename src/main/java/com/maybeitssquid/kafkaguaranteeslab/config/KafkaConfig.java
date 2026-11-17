@@ -31,17 +31,20 @@ public class KafkaConfig {
   @Value("${spring.kafka.consumer.group-id}")
   private String groupId;
 
-  @Value("${spring.kafka.consumer.retry.interval-ms}")
+  @Value("${lab.consumer.redelivery.interval-ms}")
   private long retryIntervalMs;
 
-  @Value("${spring.kafka.consumer.retry.max-attempts}")
+  @Value("${lab.consumer.redelivery.max-attempts}")
   private long retryMaxAttempts;
 
-  @Value("${spring.kafka.consumer.dead-letter.topic}")
+  @Value("${lab.dead-letter.topic}")
   private String deadLetterTopic;
 
-  @Value("${spring.kafka.consumer.dead-letter.send-timeout-ms}")
+  @Value("${lab.dead-letter.send-timeout-ms}")
   private long deadLetterSendTimeoutMs;
+
+  @Value("${lab.producer.idempotence}")
+  private boolean idempotence;
 
   // ── Producer ────────────────────────────────────────────────────────────
 
@@ -52,7 +55,8 @@ public class KafkaConfig {
     props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JacksonJsonSerializer.class);
     // At-least-once delivery: wait for all in-sync replicas to ack
     props.put(ProducerConfig.ACKS_CONFIG, "all");
-    props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+    // On in the lab's normal configuration. The stage1 profile turns it off to show what it adds.
+    props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, idempotence);
     props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
     props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
     return props;

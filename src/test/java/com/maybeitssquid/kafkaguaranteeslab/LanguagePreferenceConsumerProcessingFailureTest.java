@@ -1,7 +1,7 @@
 package com.maybeitssquid.kafkaguaranteeslab;
 
+import static com.maybeitssquid.kafkaguaranteeslab.KafkaTestSupport.awaitUntil;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -16,13 +16,8 @@ import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import java.time.Duration;
 import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.AdminClientConfig;
-import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,7 +37,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  */
 @SpringBootTest(
     properties = {
-      "spring.kafka.consumer.retry.interval-ms=100",
+      "lab.consumer.redelivery.interval-ms=100",
       "resilience4j.retry.instances.languagePreferenceConsumer.wait-duration=10ms"
     })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
@@ -128,27 +123,6 @@ class LanguagePreferenceConsumerProcessingFailureTest {
   }
 
   private long committedOffset() throws Exception {
-    var config =
-        Map.<String, Object>of(
-            AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, broker.getBrokersAsString());
-    try (var admin = AdminClient.create(config)) {
-      var offsets =
-          admin
-              .listConsumerGroupOffsets(groupId)
-              .partitionsToOffsetAndMetadata()
-              .get(5, TimeUnit.SECONDS);
-      var partition = new TopicPartition(LanguagePreferenceProducer.TOPIC, 0);
-      return offsets.containsKey(partition) ? offsets.get(partition).offset() : -1;
-    }
-  }
-
-  private static void awaitUntil(Callable<Boolean> condition, Duration timeout) throws Exception {
-    long deadline = System.nanoTime() + timeout.toNanos();
-    while (!condition.call()) {
-      if (System.nanoTime() > deadline) {
-        fail("condition not met within " + timeout);
-      }
-      Thread.sleep(50);
-    }
+    return KafkaTestSupport.committedOffset(broker, groupId, LanguagePreferenceProducer.TOPIC);
   }
 }

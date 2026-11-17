@@ -1,10 +1,13 @@
 package com.maybeitssquid.kafkaguaranteeslab.consumer;
 
+import com.maybeitssquid.kafkaguaranteeslab.lab.FaultInjector;
+import com.maybeitssquid.kafkaguaranteeslab.lab.ProcessingLedger;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -51,9 +54,47 @@ public class LanguagePreferenceProcessor {
 
   private static final Logger log = LoggerFactory.getLogger(LanguagePreferenceProcessor.class);
 
+  /** What {@link #processFallback} does with an event that could not be processed. */
+  public enum FallbackMode {
+    /** Log the failure and return, so the record is acknowledged unprocessed. */
+    ACKNOWLEDGE,
+    /** Throw the failure, so the record is redelivered and finally dead-lettered. */
+    RETHROW
+  }
+
+  private final ProcessingLedger ledger;
+  private final FaultInjector faults;
+  private final FallbackMode fallbackMode;
+  private final boolean deduplicate;
+
   /**
-   * Processes one event. This demo only logs it. A real implementation would make its downstream
-   * calls here, such as a database write or an HTTP request.
+   * Creates the processor.
+   *
+   * @param ledger records what happened to each event
+   * @param faults supplies injected processing failures
+   * @param fallbackMode what the fallback does with an event that could not be processed
+   * @param deduplicate whether to skip an event whose id was already processed
+   */
+  public LanguagePreferenceProcessor(
+      ProcessingLedger ledger,
+      FaultInjector faults,
+      @Value("${lab.consumer.fallback}") FallbackMode fallbackMode,
+      @Value("${lab.consumer.deduplicate}") boolean deduplicate) {
+    this.ledger = ledger;
+    this.faults = faults;
+    this.fallbackMode = fallbackMode;
+    this.deduplicate = deduplicate;
+  }
+
+  /**
+   * Processes one event. This lab records it in the {@link ProcessingLedger}, which stands in for a
+   * downstream system. A real implementation would make its downstream calls here, such as a
+   * database write or an HTTP request.
+   *
+   * <p><b>Duplicates.</b> The same event can arrive more than once. With {@code
+   * lab.consumer.deduplicate} off, each arrival is processed and the ledger shows the repeat. With
+   * it on, an event whose id was already processed is skipped. Recognising an event by its own id
+   * is what Kafka's idempotent producer cannot do.
    *
    * <p>Downstream processing can fail. A downstream client usually brings its own retry and circuit
    * breaker logic, and it may throw exceptions. The logic in this implementation assumes that
@@ -77,35 +118,64 @@ public class LanguagePreferenceProcessor {
   @Retry(name = "languagePreferenceConsumer", fallbackMethod = "processFallback")
   @CircuitBreaker(name = "languagePreferenceConsumer")
   public void process(LanguagePreference event) {
+    if (faults.takeProcessingFailure()) {
+      throw new IllegalStateException("Injected fault: downstream unavailable");
+    }
+    if (deduplicate && ledger.processedCount(event.eventId()) > 0) {
+      log.info("Skipping duplicate: eventId={} customerId={}", event.eventId(), event.customerId());
+      ledger.skippedDuplicate(event);
+      return;
+    }
     log.info(
-        "Processing language preference: customerId={} locale={}",
+        "Processing language preference: eventId={} customerId={} locale={}",
+        event.eventId(),
         event.customerId(),
         event.preferredLanguage());
+    ledger.processed(event);
   }
 
   /**
    * Called by the retry when {@link #process} has failed on every attempt, including attempts
-   * rejected because the circuit is open. It logs the error and does not throw.
+   * rejected because the circuit is open. What it does next is set by {@code
+   * lab.consumer.fallback}.
    *
    * <p><b>Thread.</b> This runs on the same thread and in the same call stack as {@code process}:
    * the one of the {@code onMessage} call that read the message.
    *
-   * <p><b>Where the failure lands.</b> It stops here. Because this method returns normally, {@code
-   * onMessage} sees a successful call and acknowledges the record. The event is then neither
-   * processed nor dead-lettered, and this log line is the only trace of it.
+   * <p><b>{@code acknowledge}, the default.</b> The failure stops here. This method logs the error
+   * and returns normally, so {@code onMessage} sees a successful call and acknowledges the record.
+   * The event is then neither processed nor dead-lettered. The log line and the ledger's list of
+   * dropped events are the only traces of it. This keeps the consumer moving at the price of the
+   * delivery guarantee.
    *
-   * <p>If this fallback also threw an exception, the exception would land back in the {@code
-   * onMessage} handler. The handler would not acknowledge the unprocessed message, so it would be
-   * retried: {@code DefaultErrorHandler} would redeliver it and, once the redeliveries were
-   * exhausted, write a dead-letter pointer to it.
+   * <p><b>{@code rethrow}.</b> This method throws the failure, and the exception lands back in the
+   * {@code onMessage} handler. The handler does not acknowledge the unprocessed message, so it is
+   * retried: {@code DefaultErrorHandler} redelivers it and, once the redeliveries are exhausted,
+   * writes a dead-letter pointer to it. This keeps the guarantee at the price of a partition that
+   * waits while the record is retried.
    *
    * @param event the event that could not be processed
    * @param t the failure of the last attempt
    */
   public void processFallback(LanguagePreference event, Throwable t) {
+    if (fallbackMode == FallbackMode.RETHROW) {
+      log.error(
+          "Processing failed after retries — rethrowing: eventId={} customerId={}",
+          event.eventId(),
+          event.customerId());
+      if (t instanceof RuntimeException runtime) {
+        throw runtime;
+      }
+      if (t instanceof Error error) {
+        throw error;
+      }
+      throw new IllegalStateException(t);
+    }
     log.error(
-        "Processing failed after retries — event not processed: customerId={}",
+        "Processing failed after retries — event not processed: eventId={} customerId={}",
+        event.eventId(),
         event.customerId(),
         t);
+    ledger.dropped(event);
   }
 }

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 
 import com.maybeitssquid.kafkaguaranteeslab.consumer.LanguagePreferenceConsumer;
 import com.maybeitssquid.kafkaguaranteeslab.consumer.LanguagePreferenceProcessor;
+import com.maybeitssquid.kafkaguaranteeslab.lab.FaultInjector;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -24,7 +25,7 @@ class LanguagePreferenceConsumerTombstoneTest {
   @Test
   void tombstone_isAcknowledged_withoutBeingProcessed() {
     var processor = mock(LanguagePreferenceProcessor.class);
-    var consumer = new LanguagePreferenceConsumer(processor);
+    var consumer = new LanguagePreferenceConsumer(processor, new FaultInjector());
     var tombstone =
         new ConsumerRecord<String, LanguagePreference>(
             LanguagePreferenceProducer.TOPIC, 0, 0L, "cust-1", null);

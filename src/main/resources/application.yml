@@ -3,12 +3,32 @@ spring:
     bootstrap-servers: localhost:9092
     consumer:
       group-id: kafka-guarantees-lab-group
-      retry:
-        interval-ms: 1000
-        max-attempts: 2
-      dead-letter:
-        topic: dead-letters
-        send-timeout-ms: 10000
+
+# The lab's own settings. They are not Spring Boot properties.
+lab:
+  producer:
+    # Kafka's idempotent producer. The stage1 profile turns it off.
+    idempotence: true
+  publish:
+    # How long POST /language-preferences waits for the publish outcome before answering 503.
+    response-timeout-ms: 10000
+  consumer:
+    redelivery:
+      # DefaultErrorHandler: wait between redeliveries, and redeliveries after the first delivery.
+      interval-ms: 1000
+      max-attempts: 2
+    # What happens to an event whose processing failed on every attempt.
+    # acknowledge: log it and acknowledge the record unprocessed.
+    # rethrow: fail the delivery, so the record is redelivered and finally dead-lettered.
+    fallback: acknowledge
+    # Skip an event whose id was already processed.
+    deduplicate: false
+  dead-letter:
+    topic: dead-letters
+    send-timeout-ms: 10000
+  circuit-breakers:
+    # The stage1 and stage2 profiles turn the circuit breakers off.
+    enabled: true
 
 management:
   endpoints:
