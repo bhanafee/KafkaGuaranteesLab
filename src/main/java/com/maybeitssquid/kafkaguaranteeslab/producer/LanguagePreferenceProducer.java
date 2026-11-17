@@ -1,5 +1,6 @@
 package com.maybeitssquid.kafkaguaranteeslab.producer;
 
+import com.maybeitssquid.kafkaguaranteeslab.lab.Crasher;
 import com.maybeitssquid.kafkaguaranteeslab.lab.FaultInjector;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
@@ -56,17 +57,22 @@ public class LanguagePreferenceProducer {
 
   private final KafkaTemplate<String, LanguagePreference> kafkaTemplate;
   private final FaultInjector faults;
+  private final Crasher crasher;
 
   /**
    * Creates the producer.
    *
    * @param kafkaTemplate sends the records
-   * @param faults supplies injected failed and ambiguous sends
+   * @param faults supplies injected failed and ambiguous sends, and crashes
+   * @param crasher stops the application for an injected crash
    */
   public LanguagePreferenceProducer(
-      KafkaTemplate<String, LanguagePreference> kafkaTemplate, FaultInjector faults) {
+      KafkaTemplate<String, LanguagePreference> kafkaTemplate,
+      FaultInjector faults,
+      Crasher crasher) {
     this.kafkaTemplate = kafkaTemplate;
     this.faults = faults;
+    this.crasher = crasher;
   }
 
   /**
@@ -103,6 +109,10 @@ public class LanguagePreferenceProducer {
   public CompletableFuture<SendResult<String, LanguagePreference>> publish(
       LanguagePreference event) {
     log.info("Publishing event: eventId={} customerId={}", event.eventId(), event.customerId());
+    if (faults.takeCrashBeforeSend()) {
+      // The application stops with the event accepted and nothing sent. Only the caller has it.
+      crasher.crash("event " + event.eventId() + " accepted, not sent");
+    }
     if (faults.takeFailedSend()) {
       // Nothing is sent. This is what a send looks like when the broker stays unreachable until
       // the delivery timeout runs out: the attempt fails and the topic does not hold the record.

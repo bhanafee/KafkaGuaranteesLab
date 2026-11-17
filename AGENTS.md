@@ -4,7 +4,7 @@ This file documents key information about the project architecture, build comman
 
 ## Project overview
 
-A Spring Boot lab that shows why Kafka's idempotent producer does not give exactly-once delivery, using `LanguagePreference` events (`eventId` + `customerId` + `Locale`). The producer is idempotent with `acks=all`, the consumer commits offsets manually, and Resilience4j retries and circuit breakers sit on both sides. An in-memory ledger and a fault injector make duplicates, dropped events and dead letters reproducible and visible. The README's "Where Delivery Can Go Wrong" section is the lab's argument; keep code and that section in step.
+A Spring Boot lab that shows why Kafka's idempotent producer does not give exactly-once delivery, using `LanguagePreference` events (`eventId` + `customerId` + `Locale`). The producer is idempotent with `acks=all`, the consumer commits offsets manually, and Resilience4j retries and circuit breakers sit on both sides. A ledger kept in a Kafka topic and a fault injector make duplicates, dropped events and dead letters reproducible and visible. The README's "Where Delivery Can Go Wrong" section is the lab's argument; keep code and that section in step.
 
 ## Commands
 
@@ -62,16 +62,17 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 ### Lab instruments (`lab/`)
 
 - The application's own settings live under `lab.*` in `application.yml`. Do not put them under `spring.kafka.*`, where they would look like Spring Boot properties.
-- `ProcessingLedger` is in memory. It stands in for a downstream system and is what the scenario tests assert on. It keeps each customer's current preference, which is the one processed last, so a stale overwrite is visible.
+- `ProcessingLedger` stands in for a downstream system and is what the scenario tests assert on. Every change goes through a `LedgerJournal` and reaches the ledger's state only in `apply()`. In the application the journal is `KafkaLedgerJournal`: it writes each entry to the one-partition `lab-ledger` topic, and a reader thread applies the topic's entries in order, so the ledger survives a restart and is the same in every instance. The journal starts before the listener container and replays the topic first. `new ProcessingLedger()` on its own is in memory. It keeps each customer's current preference, which is the one processed last, so a stale overwrite is visible.
 - Build a set of faults in tests with `Faults.none().with...()`, so a new fault does not change existing call sites.
-- `FaultInjector` holds five counts: `failedSends` (a send fails with nothing written), `ambiguousSends` (a send is written, then reported as failed), `processingFailures` (`process()` throws before changing anything), `partialFailures` (`process()` records the event and then throws) and `lostCommits` (a processed record is not acknowledged and is redelivered by the error handler, as after a consumer crash; each one uses up a delivery of the redelivery budget). The producer, processor and consumer each consume a count at the step concerned.
-- `LabController` exposes both under `/lab`. The endpoints are unprotected.
+- `FaultInjector` holds seven counts: `failedSends` (a send fails with nothing written), `ambiguousSends` (a send is written, then reported as failed), `processingFailures` (`process()` throws before changing anything), `partialFailures` (`process()` records the event and then throws) and `lostCommits` (a processed record is not acknowledged and is redelivered by the error handler, as after a consumer crash; each one uses up a delivery of the redelivery budget), `crashBeforeSend` and `crashBeforeCommit` (the application halts through `Crasher`, before a send or between processing and commit). The producer, processor and consumer each consume a count at the step concerned.
+- `LabController` exposes both under `/lab`. The endpoints are unprotected and can halt the JVM, so `server.address` defaults to `localhost`.
 - The `stage1` and `stage2` profiles run the application without Resilience4j (one retry attempt, circuit breakers disabled by `CircuitBreakerSwitch`, fallback `rethrow`). `stage1` also turns idempotence off.
 
 ### Tests
 
 - `LabScenarioTest` runs the README's scenarios through the real producer, embedded broker and listener container on three partitions. Its tests share one context and assert on the ledger by event id, never on offsets.
 - The container-based consumer tests that assert on committed offsets (`...DeadLetterTest`, `...PoisonPillTest`, `...ProcessingFailureTest`) start a fresh context and broker per test method.
+- `LabRestartTest` runs the scenarios that need a restart or two instances. It starts its own broker and starts and stops application instances against it with `SpringApplicationBuilder`. It replaces the `Crasher` action with one that throws an `Error`, because a test cannot halt its own JVM.
 - Shared helpers are in `KafkaTestSupport`.
 - A new scenario in the README's summary table should get a test in `LabScenarioTest`, or an entry under "What the lab cannot reproduce".
 

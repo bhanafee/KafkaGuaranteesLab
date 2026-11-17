@@ -1,5 +1,6 @@
 package com.maybeitssquid.kafkaguaranteeslab.consumer;
 
+import com.maybeitssquid.kafkaguaranteeslab.lab.Crasher;
 import com.maybeitssquid.kafkaguaranteeslab.lab.FaultInjector;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -16,16 +17,20 @@ public class LanguagePreferenceConsumer {
 
   private final LanguagePreferenceProcessor processor;
   private final FaultInjector faults;
+  private final Crasher crasher;
 
   /**
    * Creates the consumer.
    *
    * @param processor processes each event
-   * @param faults supplies injected lost commits
+   * @param faults supplies injected lost commits and crashes
+   * @param crasher stops the application for an injected crash
    */
-  public LanguagePreferenceConsumer(LanguagePreferenceProcessor processor, FaultInjector faults) {
+  public LanguagePreferenceConsumer(
+      LanguagePreferenceProcessor processor, FaultInjector faults, Crasher crasher) {
     this.processor = processor;
     this.faults = faults;
+    this.crasher = crasher;
   }
 
   /**
@@ -65,6 +70,11 @@ public class LanguagePreferenceConsumer {
         record.offset());
     try {
       processor.process(event);
+      if (faults.takeCrashBeforeCommit()) {
+        // The event has been processed and the application stops before the commit. The record
+        // is delivered again after a restart, or to another instance of the group.
+        crasher.crash("event " + event.eventId() + " processed, offset not committed");
+      }
       if (faults.takeLostCommit()) {
         // The event has been processed, but the offset is not committed. The record is delivered
         // again, as it would be after a consumer that stopped at this point was restarted.

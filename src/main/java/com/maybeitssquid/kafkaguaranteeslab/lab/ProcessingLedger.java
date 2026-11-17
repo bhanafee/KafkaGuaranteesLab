@@ -12,11 +12,14 @@ import org.springframework.stereotype.Component;
 /**
  * Records what the consumer did with each event, by event id. It is how the lab makes a duplicate
  * or an unprocessed event visible: without it, processing an event twice looks the same as
- * processing it once.
+ * processing it once. It stands in for the downstream system a real consumer would write to.
  *
- * <p>The ledger lives in memory. It is empty after a restart and it grows with every event, so it
- * suits a lab and nothing else. It stands in for the downstream system a real consumer would write
- * to.
+ * <p>Every change goes to a {@link LedgerJournal} first and reaches the ledger's state through
+ * {@link #apply}. In the application the journal is a Kafka topic, so the ledger survives a restart
+ * and is the same in every instance. A ledger created on its own applies its entries directly and
+ * lives in memory only.
+ *
+ * <p>The ledger grows with every event, so it suits a lab and nothing else.
  */
 @Component
 public class ProcessingLedger {
@@ -54,8 +57,20 @@ public class ProcessingLedger {
   private final Map<String, String> preferences = new LinkedHashMap<>();
   private int skippedDuplicates;
 
-  /** Creates an empty ledger. */
+  private volatile LedgerJournal journal = this::apply;
+
+  /** Creates an empty ledger that lives in memory only. */
   public ProcessingLedger() {}
+
+  /**
+   * Sends this ledger's entries to a journal from now on. The journal must hand each entry back to
+   * {@link #apply}.
+   *
+   * @param journal where to write entries
+   */
+  public void journalTo(LedgerJournal journal) {
+    this.journal = journal;
+  }
 
   /**
    * Records that an event was processed, and makes its preference the customer's current one. The
@@ -63,12 +78,8 @@ public class ProcessingLedger {
    *
    * @param event the processed event
    */
-  public synchronized void processed(LanguagePreference event) {
-    processed.merge(event.eventId(), 1, Integer::sum);
-    history.add(new Entry(event.eventId(), event.customerId()));
-    if (event.customerId() != null && event.preferredLanguage() != null) {
-      preferences.put(event.customerId(), event.preferredLanguage().toLanguageTag());
-    }
+  public void processed(LanguagePreference event) {
+    journal.append(LedgerEntry.of(LedgerEntry.Type.PROCESSED, event));
   }
 
   /**
@@ -76,8 +87,8 @@ public class ProcessingLedger {
    *
    * @param event the dropped event
    */
-  public synchronized void dropped(LanguagePreference event) {
-    dropped.add(event.eventId());
+  public void dropped(LanguagePreference event) {
+    journal.append(LedgerEntry.of(LedgerEntry.Type.DROPPED, event));
   }
 
   /**
@@ -85,8 +96,39 @@ public class ProcessingLedger {
    *
    * @param event the repeated event
    */
-  public synchronized void skippedDuplicate(LanguagePreference event) {
-    skippedDuplicates++;
+  public void skippedDuplicate(LanguagePreference event) {
+    journal.append(LedgerEntry.of(LedgerEntry.Type.SKIPPED, event));
+  }
+
+  /** Forgets everything recorded so far, in every instance that shares the journal. */
+  public void reset() {
+    journal.append(LedgerEntry.reset());
+  }
+
+  /**
+   * Changes the ledger's state according to one journal entry. Only a journal calls this.
+   *
+   * @param entry the entry to apply
+   */
+  public synchronized void apply(LedgerEntry entry) {
+    switch (entry.type()) {
+      case PROCESSED -> {
+        processed.merge(entry.eventId(), 1, Integer::sum);
+        history.add(new Entry(entry.eventId(), entry.customerId()));
+        if (entry.customerId() != null && entry.language() != null) {
+          preferences.put(entry.customerId(), entry.language());
+        }
+      }
+      case DROPPED -> dropped.add(entry.eventId());
+      case SKIPPED -> skippedDuplicates++;
+      case RESET -> {
+        processed.clear();
+        history.clear();
+        dropped.clear();
+        preferences.clear();
+        skippedDuplicates = 0;
+      }
+    }
   }
 
   /**
@@ -151,14 +193,5 @@ public class ProcessingLedger {
         new LinkedHashSet<>(dropped),
         skippedDuplicates,
         new LinkedHashMap<>(preferences));
-  }
-
-  /** Forgets everything recorded so far. */
-  public synchronized void reset() {
-    processed.clear();
-    history.clear();
-    dropped.clear();
-    preferences.clear();
-    skippedDuplicates = 0;
   }
 }

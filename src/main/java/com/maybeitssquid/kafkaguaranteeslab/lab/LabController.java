@@ -9,8 +9,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * HTTP access to the lab's instruments: the ledger that shows what happened to each event, and the
- * fault injector that makes things go wrong. These endpoints are unprotected and belong in a lab
- * only.
+ * fault injector that makes things go wrong. These endpoints are unprotected, and two of the faults
+ * stop the JVM. They belong in a lab only, which is why the server listens on localhost by default.
  */
 @RestController
 @RequestMapping("/lab")
@@ -25,13 +25,18 @@ public class LabController {
    * @param processingFailures calls to {@code process()} that should throw before changing anything
    * @param partialFailures calls to {@code process()} that should make their change and then throw
    * @param lostCommits records to process and then not acknowledge
+   * @param crashBeforeSend publishes that should stop the application before anything is sent
+   * @param crashBeforeCommit records to process, after which the application should stop before the
+   *     offset is committed
    */
   public record FaultRequest(
       Integer failedSends,
       Integer ambiguousSends,
       Integer processingFailures,
       Integer partialFailures,
-      Integer lostCommits) {
+      Integer lostCommits,
+      Integer crashBeforeSend,
+      Integer crashBeforeCommit) {
 
     FaultInjector.Faults toFaults() {
       return new FaultInjector.Faults(
@@ -39,7 +44,9 @@ public class LabController {
           orZero(ambiguousSends),
           orZero(processingFailures),
           orZero(partialFailures),
-          orZero(lostCommits));
+          orZero(lostCommits),
+          orZero(crashBeforeSend),
+          orZero(crashBeforeCommit));
     }
 
     private static int orZero(Integer count) {
@@ -71,7 +78,7 @@ public class LabController {
     return ledger.summary();
   }
 
-  /** Empties the ledger. */
+  /** Empties the ledger, in every instance that shares its journal. */
   @DeleteMapping("/ledger")
   public void resetLedger() {
     ledger.reset();
