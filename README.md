@@ -475,6 +475,20 @@ started. Without a profile the application runs stage 3.
 In stages 1 and 2 a retry has one attempt, the circuit breakers are disabled, and a processing
 failure goes straight to redelivery and the dead-letter topic.
 
+Stage 1 and stage 2 differ in one scenario only, **Kafka resends a batch**, and it takes a network
+fault to produce it. `LostAcknowledgmentTest` does so. It puts a small TCP proxy between the
+application and the broker. The proxy lets one produce request through, and when the broker's
+acknowledgment comes back it closes the producer's connection instead of forwarding it. Kafka's
+producer then sends the batch again:
+
+| Profile | Records in the topic | Times the event is processed |
+|---|---|---|
+| `stage1` | 2 | 2 |
+| `stage2` | 1 | 1 |
+
+In both runs the call to `send()` succeeds, and nothing tells the application that a batch was
+sent twice. Run it with `./gradlew test --tests "*LostAcknowledgmentTest"`.
+
 ### A second instance
 
 A second instance of the application joins the same consumer group and shares the ledger:
@@ -491,10 +505,12 @@ the session timeout of 45 s has passed, then processes the uncommitted record ag
 
 Some scenarios need a fault outside the application, and the lab does not create them:
 
-- **Kafka resends a batch** and **a resent batch lands late.** These are the two scenarios
-  idempotence fixes, so they are the only observable difference between stage 1 and stage 2.
-  Producing them needs the broker's acknowledgment to be lost on the network, for example with a
-  fault-injecting proxy between the application and the broker.
+- **Kafka resends a batch**, by hand. The proxy that loses an acknowledgment is part of the tests
+  (see [Stages](#stages)), and the broker has to advertise the proxy's address. A tool such as
+  Toxiproxy in front of the local broker would do the same for a manual run.
+- **A resent batch lands late.** Closing the connection fails every batch in flight, and the
+  producer sends them again in their original order. A reorder needs the broker to reject one
+  batch with a retriable error and accept the next, which the proxy cannot make it do.
 - **The group rebalances.** A second instance that joins or leaves duplicates nothing here,
   because the listener commits each record before it reads the next. A duplicate needs a consumer
   that still holds a processed, uncommitted record when the group takes its partition away. That

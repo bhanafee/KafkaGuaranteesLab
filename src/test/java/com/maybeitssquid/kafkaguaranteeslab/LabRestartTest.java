@@ -1,6 +1,7 @@
 package com.maybeitssquid.kafkaguaranteeslab;
 
 import static com.maybeitssquid.kafkaguaranteeslab.KafkaTestSupport.awaitUntil;
+import static com.maybeitssquid.kafkaguaranteeslab.KafkaTestSupport.hasPartitions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
@@ -11,17 +12,13 @@ import com.maybeitssquid.kafkaguaranteeslab.lab.ProcessingLedger;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
 import org.springframework.kafka.test.EmbeddedKafkaKraftBroker;
 
@@ -58,22 +55,8 @@ class LabRestartTest {
     }
   }
 
-  /**
-   * Starts an instance and waits until its consumer has partitions. An instance that is closed
-   * while its consumer is still joining stays in the group as a pending member, and the next
-   * rebalance waits most of a minute for it.
-   */
   private static ConfigurableApplicationContext startApp(String... extraArgs) throws Exception {
-    List<String> args = new ArrayList<>();
-    args.add("--spring.kafka.bootstrap-servers=" + broker.getBrokersAsString());
-    args.add("--server.port=0");
-    args.add("--lab.consumer.redelivery.interval-ms=100");
-    args.addAll(List.of(extraArgs));
-    var app =
-        new SpringApplicationBuilder(KafkaGuaranteesLabApplication.class)
-            .run(args.toArray(String[]::new));
-    awaitUntil(() -> hasPartitions(app), TIMEOUT);
-    return app;
+    return KafkaTestSupport.startApp(broker.getBrokersAsString(), extraArgs);
   }
 
   /** Makes an injected crash end the calling thread, and reports whether one has happened. */
@@ -85,14 +68,6 @@ class LabRestartTest {
           throw new SimulatedCrash(reason);
         });
     return crashed;
-  }
-
-  private static boolean hasPartitions(ConfigurableApplicationContext app) {
-    return app.getBean(KafkaListenerEndpointRegistry.class).getListenerContainers().stream()
-        .allMatch(container -> {
-          var assigned = container.getAssignedPartitions();
-          return assigned != null && !assigned.isEmpty();
-        });
   }
 
   private static ProcessingLedger ledgerOf(ConfigurableApplicationContext app) {

@@ -73,7 +73,8 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 - `LabScenarioTest` runs the README's scenarios through the real producer, embedded broker and listener container on three partitions. Its tests share one context and assert on the ledger by event id, never on offsets.
 - The container-based consumer tests that assert on committed offsets (`...DeadLetterTest`, `...PoisonPillTest`, `...ProcessingFailureTest`) start a fresh context and broker per test method.
 - `LabRestartTest` runs the scenarios that need a restart or two instances. It starts its own broker and starts and stops application instances against it with `SpringApplicationBuilder`. It replaces the `Crasher` action with one that throws an `Error`, because a test cannot halt its own JVM.
-- Shared helpers are in `KafkaTestSupport`.
+- `LostAcknowledgmentTest` shows the one difference between stage 1 and stage 2. Its broker advertises the port of `LostAcknowledgmentProxy`, a test-only TCP proxy that reads Kafka's request and response framing and closes the producer's connection in place of forwarding one produce acknowledgment. The broker is started without topics, because creating them goes through the proxy, which needs the broker's port first.
+- Shared helpers are in `KafkaTestSupport`, including `startApp()` for tests that run application instances against a broker that outlives them.
 - A new scenario in the README's summary table should get a test in `LabScenarioTest`, or an entry under "What the lab cannot reproduce".
 
 **Observability**: Actuator exposes `health`, `info`, `prometheus`, `circuitbreakers`, and `retries`.
