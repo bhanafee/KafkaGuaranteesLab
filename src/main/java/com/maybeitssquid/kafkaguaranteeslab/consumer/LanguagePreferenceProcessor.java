@@ -14,7 +14,7 @@ import org.springframework.stereotype.Service;
  *
  * <p><b>How the two annotations nest.</b> The retry is the outer one and the circuit breaker the
  * inner one. Each attempt passes through the circuit breaker separately, so a record that fails all
- * of its attempts adds three failures to the circuit breaker's window, not one.
+ * of its retry attempts adds three failures to the circuit breaker's window.
  *
  * <ul>
  *   <li><b>Retry:</b> up to 3 attempts, with a fixed 1 s wait between them, on any {@code
@@ -28,8 +28,11 @@ import org.springframework.stereotype.Service;
  * the last attempt. On the circuit breaker it would turn every failed attempt into a normal return,
  * and the retry would never see a failure to retry.
  *
- * <p><b>This configuration slows the consumer down, without saying so.</b> The retry waits by
- * sleeping on the thread that called {@link #process}, which is the listener thread.
+ * <p><b>This configuration slows the consumer down.</b> The Resilience4j retry waits by sleeping on
+ * the thread that called {@link #process}, which is the listener thread. While this application, a
+ * downstream system or the connection to a downstream system is failing, the consumer falls behind
+ * and its lag grows. The records it has not yet read wait in Kafka, not in this application's
+ * memory.
  *
  * <ul>
  *   <li>A record that keeps failing holds its partition for the two 1 s waits plus the time of the
@@ -53,17 +56,21 @@ public class LanguagePreferenceProcessor {
    * calls here, such as a database write or an HTTP request.
    *
    * <p>Downstream processing can fail. A downstream client usually brings its own retry and circuit
-   * breaker logic, and it may throw exceptions.
+   * breaker logic, and it may throw exceptions. The logic in this implementation assumes that
+   * downstream processing is safe to retry (e.g., it is idempotent).
    *
-   * <p><b>Thread.</b> All of that processing runs on the thread, and in the call stack, of the
-   * {@link LanguagePreferenceConsumer#onMessage} call that read the message. There is no hand-off
-   * to another thread: {@code onMessage} does not return, and its record is not acknowledged, until
-   * this method has returned or thrown.
+   * <p><b>Thread.</b> All of that processing runs on the thread and in the call stack of the {@link
+   * LanguagePreferenceConsumer#onMessage} call that read the message. There is no hand-off to
+   * another thread: {@code onMessage} does not return, and its record is not acknowledged, until
+   * this method has returned or thrown. If it were passed to a different thread then this
+   * application could accumulate and potentially lose unprocessed messages while continuing to
+   * acknowledge them to Kafka.
    *
    * <p><b>Where exceptions land.</b> An exception thrown here travels up that same call stack. It
    * reaches the circuit breaker first, which records the failure, and then the retry, which waits
-   * and calls this method again. After the last attempt the retry calls {@link #processFallback}
-   * with the exception. {@code onMessage} sees an exception only if the fallback throws one.
+   * and calls this method again. If the last retry attempt fails, the retry logic in Resilience4j
+   * calls {@link #processFallback} with the exception. {@code onMessage} sees an exception only if
+   * the fallback throws one.
    *
    * @param event the event to process
    */

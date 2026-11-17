@@ -30,7 +30,7 @@ import org.springframework.stereotype.Service;
  * <p><b>The fallback belongs to the retry.</b> A fallback on the outer annotation runs once per
  * publish, after the last attempt. On the circuit breaker it would run once per attempt.
  *
- * <p><b>This configuration slows publishing down, without saying so.</b>
+ * <p><b>This configuration slows publishing down.</b>
  *
  * <ul>
  *   <li>{@link #publish} returns a future, so Resilience4j does not block the caller between
