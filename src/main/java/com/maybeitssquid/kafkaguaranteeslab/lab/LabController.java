@@ -22,13 +22,15 @@ public class LabController {
    *
    * @param failedSends sends that should fail without writing anything to the topic
    * @param ambiguousSends sends to write to the topic and then report as failed
-   * @param processingFailures calls to {@code process()} that should throw
+   * @param processingFailures calls to {@code process()} that should throw before changing anything
+   * @param partialFailures calls to {@code process()} that should make their change and then throw
    * @param lostCommits records to process and then not acknowledge
    */
   public record FaultRequest(
       Integer failedSends,
       Integer ambiguousSends,
       Integer processingFailures,
+      Integer partialFailures,
       Integer lostCommits) {
 
     FaultInjector.Faults toFaults() {
@@ -36,6 +38,7 @@ public class LabController {
           orZero(failedSends),
           orZero(ambiguousSends),
           orZero(processingFailures),
+          orZero(partialFailures),
           orZero(lostCommits));
     }
 

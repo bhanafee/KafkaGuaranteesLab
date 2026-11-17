@@ -18,11 +18,16 @@ public class FaultInjector {
    *
    * @param failedSends sends that will fail without writing anything to the topic
    * @param ambiguousSends sends that will be written to the topic and then reported as failed
-   * @param processingFailures calls to {@code process()} that will throw
+   * @param processingFailures calls to {@code process()} that will throw before changing anything
+   * @param partialFailures calls to {@code process()} that will make their change and then throw
    * @param lostCommits records that will be processed and then not acknowledged
    */
   public record Faults(
-      int failedSends, int ambiguousSends, int processingFailures, int lostCommits) {
+      int failedSends,
+      int ambiguousSends,
+      int processingFailures,
+      int partialFailures,
+      int lostCommits) {
 
     /**
      * Returns a set with no faults, as a starting point for the {@code with} methods.
@@ -30,7 +35,7 @@ public class FaultInjector {
      * @return a set in which every count is 0
      */
     public static Faults none() {
-      return new Faults(0, 0, 0, 0);
+      return new Faults(0, 0, 0, 0, 0);
     }
 
     /**
@@ -40,7 +45,7 @@ public class FaultInjector {
      * @return the copy
      */
     public Faults withFailedSends(int count) {
-      return new Faults(count, ambiguousSends, processingFailures, lostCommits);
+      return new Faults(count, ambiguousSends, processingFailures, partialFailures, lostCommits);
     }
 
     /**
@@ -50,7 +55,7 @@ public class FaultInjector {
      * @return the copy
      */
     public Faults withAmbiguousSends(int count) {
-      return new Faults(failedSends, count, processingFailures, lostCommits);
+      return new Faults(failedSends, count, processingFailures, partialFailures, lostCommits);
     }
 
     /**
@@ -60,7 +65,17 @@ public class FaultInjector {
      * @return the copy
      */
     public Faults withProcessingFailures(int count) {
-      return new Faults(failedSends, ambiguousSends, count, lostCommits);
+      return new Faults(failedSends, ambiguousSends, count, partialFailures, lostCommits);
+    }
+
+    /**
+     * Returns a copy with a different count of partial failures.
+     *
+     * @param count calls to {@code process()} that will make their change and then throw
+     * @return the copy
+     */
+    public Faults withPartialFailures(int count) {
+      return new Faults(failedSends, ambiguousSends, processingFailures, count, lostCommits);
     }
 
     /**
@@ -70,13 +85,14 @@ public class FaultInjector {
      * @return the copy
      */
     public Faults withLostCommits(int count) {
-      return new Faults(failedSends, ambiguousSends, processingFailures, count);
+      return new Faults(failedSends, ambiguousSends, processingFailures, partialFailures, count);
     }
   }
 
   private final AtomicInteger failedSends = new AtomicInteger();
   private final AtomicInteger ambiguousSends = new AtomicInteger();
   private final AtomicInteger processingFailures = new AtomicInteger();
+  private final AtomicInteger partialFailures = new AtomicInteger();
   private final AtomicInteger lostCommits = new AtomicInteger();
 
   /** Creates an injector with no faults pending. */
@@ -91,6 +107,7 @@ public class FaultInjector {
     failedSends.set(Math.max(0, faults.failedSends()));
     ambiguousSends.set(Math.max(0, faults.ambiguousSends()));
     processingFailures.set(Math.max(0, faults.processingFailures()));
+    partialFailures.set(Math.max(0, faults.partialFailures()));
     lostCommits.set(Math.max(0, faults.lostCommits()));
   }
 
@@ -101,7 +118,11 @@ public class FaultInjector {
    */
   public Faults pending() {
     return new Faults(
-        failedSends.get(), ambiguousSends.get(), processingFailures.get(), lostCommits.get());
+        failedSends.get(),
+        ambiguousSends.get(),
+        processingFailures.get(),
+        partialFailures.get(),
+        lostCommits.get());
   }
 
   /**
@@ -126,13 +147,24 @@ public class FaultInjector {
   }
 
   /**
-   * Asks whether this call to {@code process()} should fail. This imitates a downstream system that
-   * is unavailable.
+   * Asks whether this call to {@code process()} should fail before it changes anything. This
+   * imitates a downstream system that is unavailable.
    *
    * @return true if the caller should throw
    */
   public boolean takeProcessingFailure() {
     return take(processingFailures);
+  }
+
+  /**
+   * Asks whether this call to {@code process()} should fail after it has made its change. This
+   * imitates a downstream call that took effect and then reported an error, or the first of two
+   * downstream changes succeeding and the second failing.
+   *
+   * @return true if the caller should throw although the change was made
+   */
+  public boolean takePartialFailure() {
+    return take(partialFailures);
   }
 
   /**

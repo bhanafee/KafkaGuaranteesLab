@@ -71,7 +71,7 @@ public class LanguagePreferenceProcessor {
    * Creates the processor.
    *
    * @param ledger records what happened to each event
-   * @param faults supplies injected processing failures
+   * @param faults supplies injected processing failures and partial failures
    * @param fallbackMode what the fallback does with an event that could not be processed
    * @param deduplicate whether to skip an event whose id was already processed
    */
@@ -134,6 +134,11 @@ public class LanguagePreferenceProcessor {
         event.customerId(),
         event.preferredLanguage());
     ledger.processed(event);
+    if (faults.takePartialFailure()) {
+      // The change has been made and the call fails all the same. Whatever tries again, the retry
+      // or a redelivery, repeats the change unless the event is recognised by its id.
+      throw new IllegalStateException("Injected fault: downstream failed after the change");
+    }
   }
 
   /**

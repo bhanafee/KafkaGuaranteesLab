@@ -152,6 +152,21 @@ class LabScenarioTest {
   }
 
   @Test
+  void deliveryThatFailsPartWay_isRepeatedByTheRetry() throws Exception {
+    // The first attempt records the event and then throws. The Resilience4j retry calls process()
+    // again within the same delivery, and the change is made a second time.
+    // This failure counts toward the consumer's circuit breaker, with the 3 of the test above.
+    faults.set(Faults.none().withPartialFailures(1));
+    var event = new LanguagePreference("cust-partial", Locale.FRENCH);
+
+    producer.publish(event).get(5, TimeUnit.SECONDS);
+
+    awaitUntil(() -> ledger.processedCount(event.eventId()) == 2, TIMEOUT);
+    assertSettledAt(event, 2);
+    assertThat(ledger.wasDropped(event.eventId())).isFalse();
+  }
+
+  @Test
   void olderEventSentAgain_afterANewerOne_overwritesTheNewerPreference() throws Exception {
     // A caller sends a preference, then a newer one, then the first again, as a late retry does.
     // Every record is processed in the order it was written, and the stale preference wins.
