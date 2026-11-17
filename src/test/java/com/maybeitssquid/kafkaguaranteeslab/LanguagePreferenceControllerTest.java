@@ -25,6 +25,7 @@ import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -87,6 +88,22 @@ class LanguagePreferenceControllerTest {
   }
 
   @Test
+  void publish_keepsTheEventIdTheCallerSupplied() throws Exception {
+    // A caller that sends an event again repeats its id, so the consumer can recognise it.
+    when(kafkaTemplate.send(eq(LanguagePreferenceProducer.TOPIC), anyString(), any()))
+        .thenReturn(new CompletableFuture<>());
+
+    HttpResponse<String> response =
+        post("{\"eventId\":\"evt-42\",\"customerId\":\"cust-1\",\"preferredLanguage\":\"fr\"}");
+
+    assertThat(response.headers().firstValue(LanguagePreferenceController.EVENT_ID_HEADER))
+        .contains("evt-42");
+    var sent = ArgumentCaptor.forClass(LanguagePreference.class);
+    verify(kafkaTemplate).send(eq(LanguagePreferenceProducer.TOPIC), eq("cust-1"), sent.capture());
+    assertThat(sent.getValue().eventId()).isEqualTo("evt-42");
+  }
+
+  @Test
   void publish_returnsServiceUnavailable_whenTheOutcomeIsNotKnownInTime() throws Exception {
     // The send never completes, as when the broker has stopped answering.
     when(kafkaTemplate.send(eq(LanguagePreferenceProducer.TOPIC), anyString(), any()))
@@ -103,6 +120,24 @@ class LanguagePreferenceControllerTest {
   }
 
   @Test
+  void publish_returnsServiceUnavailable_whenSendItselfBlocks() throws Exception {
+    // send() blocks before returning a future, as it does while waiting for topic metadata.
+    when(kafkaTemplate.send(eq(LanguagePreferenceProducer.TOPIC), anyString(), any()))
+        .thenAnswer(invocation -> {
+          Thread.sleep(3_000);
+          return new CompletableFuture<>();
+        });
+
+    long start = System.nanoTime();
+    HttpResponse<String> response = post();
+    long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+
+    assertThat(response.statusCode()).isEqualTo(503);
+    assertThat(response.body()).isEqualTo("Event not confirmed: cust-1");
+    assertThat(elapsedMs).isLessThan(2_500);
+  }
+
+  @Test
   void publish_returnsServiceUnavailable_whenTheBrokerRejectsEverySend() throws Exception {
     when(kafkaTemplate.send(eq(LanguagePreferenceProducer.TOPIC), anyString(), any()))
         .thenReturn(CompletableFuture.failedFuture(new KafkaException("broker unavailable")));
@@ -116,12 +151,14 @@ class LanguagePreferenceControllerTest {
   }
 
   private HttpResponse<String> post() throws Exception {
+    return post("{\"customerId\":\"cust-1\",\"preferredLanguage\":\"fr\"}");
+  }
+
+  private HttpResponse<String> post(String body) throws Exception {
     var request =
         HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/language-preferences"))
             .header("Content-Type", "application/json")
-            .POST(
-                HttpRequest.BodyPublishers.ofString(
-                    "{\"customerId\":\"cust-1\",\"preferredLanguage\":\"fr\"}"))
+            .POST(HttpRequest.BodyPublishers.ofString(body))
             .build();
     return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
   }

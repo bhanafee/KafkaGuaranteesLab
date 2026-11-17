@@ -42,7 +42,8 @@ import org.springframework.stereotype.Service;
  *       send()} until {@code delivery.timeout.ms} (2 minutes by default). Three attempts of that
  *       length, plus the waits, exceed 6 minutes before the caller learns of a failure.
  *   <li>The first attempt runs on the caller's thread, and {@code send()} can block there while it
- *       waits for topic metadata, up to {@code max.block.ms}.
+ *       waits for topic metadata, up to {@code max.block.ms}. The HTTP controller calls this method
+ *       from a task executor for that reason.
  *   <li>Slowness alone opens the circuit. Sends that succeed but take longer than 2 s count against
  *       the slow-call threshold, and an open circuit fails publishes that would have succeeded.
  * </ul>
