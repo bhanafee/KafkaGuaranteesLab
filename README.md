@@ -2,8 +2,9 @@
 
 A Spring Boot lab that shows why Kafka's idempotent producer does not give exactly-once
 delivery. The producer is idempotent with `acks=all`, the strongest guarantee a producer has
-without transactions. That removes one cause of duplicates: Kafka's own retries inside a single `send()`.
-Every other way to lose, skip or repeat an event remains.
+without transactions (see [Kafka transactions](#kafka-transactions)). That removes one cause of
+duplicates: Kafka's own retries inside a single `send()`. Every other way to lose, skip or repeat an
+event remains.
 
 The lab lets you produce those failures on request and see the result. Each event carries an id, a
 ledger records what the consumer did with it, and a fault injector makes a send, a processing
@@ -51,6 +52,9 @@ hop, from the producer to the topic:
 
 Both settings are the default since Kafka 3.0. A producer that sets `enable.idempotence=true`
 together with an `acks` other than `all` fails to start with a `ConfigException`.
+
+Kafka's own exactly-once feature is the transactional producer, which builds on this one. The lab
+does not use it: [Kafka transactions](#kafka-transactions) says what it would and would not change.
 
 ## Where Delivery Can Go Wrong
 
@@ -258,6 +262,55 @@ producer settings:
   ignores an event older than the one it has stored. Deduplication by event id is not enough: it
   catches a late event only if that event was already processed once. The same check is needed
   before a dead letter is replayed. The lab does not do this.
+
+### Kafka transactions
+
+Kafka has one mode stronger than the idempotent producer: the transactional producer. The lab does
+not run it. A producer with a `transactional.id` is idempotent and adds two things:
+
+- **Atomic writes.** The records it sends between `beginTransaction()` and `commitTransaction()`,
+  to any topics and partitions, are committed together or aborted together. A consumer with
+  `isolation.level=read_committed` is never given a record of an aborted transaction. The default,
+  `read_uncommitted`, returns it.
+- **An identity that outlasts a restart.** A new instance that starts with the same
+  `transactional.id` first has the transaction its predecessor left open completed or aborted. It
+  also fences the predecessor: an old instance that is still running, a "zombie", can no longer
+  write under that id. A transaction left open longer than `transaction.timeout.ms` is aborted
+  too. None of this recognises an event that is sent again after the restart.
+
+In consume-process-produce, the producer also adds the offsets of the records consumed to the
+transaction, with `sendOffsetsToTransaction()`. The output records and the offsets then commit or
+abort together. After an abort the offsets have not moved, the input is read again, and a
+`read_committed` consumer downstream never sees the output of the aborted attempt. So a record's
+effect on Kafka topics happens once. A side effect outside Kafka, such as a database write or an
+HTTP call, is not part of the transaction. An abort does not undo it, and the redelivery repeats it.
+
+Applied to the rows of the [Summary](#summary):
+
+- **Kafka resends a batch** and **a resent batch lands late** stay fixed. A transactional producer
+  is idempotent.
+- **The caller sends the event again**, **a restarted or second instance sends it again** and **an
+  older event is sent again behind a newer one** are not changed. Two sends of one event are two
+  records in two committed transactions, to a transactional producer just as to an idempotent one.
+  A second instance needs its own `transactional.id`, or the two fence each other.
+- **The application retries a publish** depends on where the attempt fails. If every attempt is one
+  transaction and the consumer reads `read_committed`, a send that fails after its record was
+  written cannot commit, and the aborted record is never delivered. But `commitTransaction()` can
+  itself time out with the outcome unknown, and sending the event again after that duplicates it.
+  **The application retries a publish behind a newer event** is not changed: it is still late.
+- **The offset commit is lost**, **the consumer stops between processing and commit**, **the group
+  rebalances** and **a delivery fails part-way** depend on what processing is. They are fixed if
+  processing only writes to Kafka topics, in the transaction that carries the offsets, and a failed
+  attempt aborts that transaction. They are not changed if processing has an effect outside Kafka.
+  In the lab `process()` writes the ledger with a producer of its own, outside any transaction, so
+  they are not changed. The ledger is a Kafka topic and could join one. The database or service it
+  stands in for could not.
+- Every "not sent" and "not processed" row is not changed. A transaction does not make a failed
+  send succeed, and an offset committed for an unprocessed record is committed either way.
+
+The lab leaves transactions out because its events come from an HTTP caller and end in a side
+effect. Both ends are outside Kafka, where the event id and the version in the list above do the
+work, with or without transactions.
 
 ### Producer-side details
 
