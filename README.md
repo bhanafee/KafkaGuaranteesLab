@@ -440,24 +440,41 @@ within one producer id and partition, never across producers.
 ### Requirements
 
 - Java 17 or higher (Java 25 toolchain used for compilation)
-- A Kafka broker on `localhost:9092`. The included `kafka-local.sh` starts one with Apple's
-  [`container`](https://github.com/apple/container) runtime, on macOS with Apple silicon. Any
-  other broker on that port works too.
+- A Kafka broker on `localhost:9092`. Any broker works, because the application creates its own
+  topics.
+- To start a broker with the included `kafka-local.sh`: one of Apple's
+  [`container`](https://github.com/apple/container) (macOS on Apple silicon),
+  [`podman`](https://podman.io) or [`docker`](https://www.docker.com), installed and running. The
+  script needs `bash`.
 
 ### Start
 
 Start a local Kafka broker in KRaft mode (no ZooKeeper), then the application:
 
 ```bash
-container system start       # once, if the container service is not already running
 ./kafka-local.sh start
 ./gradlew bootRun
 ```
 
-The first start pulls the `apache/kafka` image. The script creates the `language-preferences` and
-`dead-letters` topics with three partitions each. The application creates the `lab-ledger` topic
-itself. Without a broker the application still starts, after waiting `lab.ledger.timeout-ms` for
-the ledger.
+The script uses the first of `container`, `podman` and `docker` that is installed and running. Set
+`KAFKA_LOCAL_RUNTIME` to one of the three names to choose, for example
+`KAFKA_LOCAL_RUNTIME=docker ./kafka-local.sh start`. The script does not start a runtime. If none
+is running it says how to start the ones it found, for example `container system start` or
+`podman machine start`, and stops. The runtimes do not share containers, so use the same one for
+every command. The first start pulls the `apache/kafka` image. With `podman` and `docker` the
+broker's port is published on `localhost` only.
+
+The application creates its topics at start if they are missing: `language-preferences` and
+`dead-letters` with three partitions each (`lab.topics.partitions`), and `lab-ledger` with one. It
+sets no replication factor, so the broker's default applies. A topic that exists with fewer
+partitions than the setting gets more, which changes the partition of its keys. A topic with more
+is left as it is. The script creates the first two topics as well, with the same three partitions,
+because the application looks only when it starts: a broker that is removed and started again
+under a running application would otherwise auto-create them with one partition.
+
+Without a broker the application still starts, after about 50 seconds: Spring's Kafka admin gives
+up on the topics after about 40 s, and the ledger then waits `lab.ledger.timeout-ms`. It does not
+look for the topics again, so start the broker first, or restart the application.
 
 The script has four commands:
 
@@ -468,8 +485,8 @@ The script has four commands:
 | `./kafka-local.sh remove` | Stops the broker and deletes its data. The next `start` makes a new, empty cluster |
 | `./kafka-local.sh status` | Shows whether the broker is running, stopped or absent, and lists the topics of a running one |
 
-The data is kept inside the stopped container, not in a volume, so anything else that removes the
-container removes the data.
+The commands mean the same with every runtime. The data belongs to the stopped container and there
+is no named volume, so anything else that removes the container removes the data.
 
 ### Send an event and see what happened
 
@@ -517,6 +534,9 @@ curl http://localhost:8080/actuator/retries
 container exec kafka-guarantees-lab-kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 --topic dead-letters --from-beginning
 ```
+
+The last command is for Apple's `container`. With another runtime, put `podman` or `docker` in its
+place. `./kafka-local.sh status` names the runtime in use.
 
 ### Experiments
 
@@ -697,6 +717,9 @@ Some scenarios need a fault outside the application, and the lab does not create
 ./kafka-local.sh stop        # stop the broker and keep its data
 ./kafka-local.sh remove      # or: stop the broker and delete its data
 ```
+
+Both use the runtime that `start` used, as long as it is still the first one running or
+`KAFKA_LOCAL_RUNTIME` names it. Neither stops the runtime itself.
 
 After `stop`, the next `start` brings back the same cluster, with the ledger and the committed
 offsets as they were. Use `remove` to start again from an empty cluster.
@@ -911,8 +934,9 @@ two redelivers the record, never loses it.
   pointer carries it after all. Deserialization failures are the exception: a parser's message
   quotes the bytes it could not read, so the pointer records the fixed text
   `payload could not be deserialized` and the class of the root cause.
-- **The topic must exist.** `kafka-local.sh` creates `dead-letters`. Elsewhere, create it or rely
-  on broker topic auto-creation.
+- **The topic must exist.** The application declares `dead-letters` and creates it at start if it
+  is missing. A consumer that uses this recoverer elsewhere must create the topic or rely on the
+  broker's topic auto-creation.
 
 ### Why the producer has no dead-letter store
 
@@ -1013,6 +1037,7 @@ properties.
 | `lab.consumer.fallback` | `acknowledge` | `acknowledge` drops an event that cannot be processed. `rethrow` sends it to redelivery and the dead-letter topic |
 | `lab.consumer.deduplicate` | `false` | Skip an event whose id was already processed |
 | `lab.publish.response-timeout-ms` | `10000` | How long `POST /language-preferences` waits for the publish outcome |
+| `lab.topics.partitions` | `3` | Partitions of `language-preferences` and `dead-letters`. The application creates the topics at start if they are missing, and adds partitions to one that has fewer |
 | `lab.ledger.topic` | `lab-ledger` | Topic that holds the ledger. The application creates it with one partition |
 | `lab.ledger.timeout-ms` | `10000` | How long to wait for the ledger's replay at start, and for each entry to be written and read back |
 | `server.address` | `localhost` | A Spring Boot property. The lab sets it because the `/lab` endpoints are unprotected |

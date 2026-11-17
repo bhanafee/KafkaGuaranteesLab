@@ -43,7 +43,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * application.yml.
  */
 @SpringBootTest(
-    properties = "resilience4j.retry.instances.languagePreferenceProducer.wait-duration=10ms")
+    properties = {
+      "lab.topics.partitions=1",
+      "resilience4j.retry.instances.languagePreferenceProducer.wait-duration=10ms"
+    })
 @DirtiesContext
 @EmbeddedKafka(
     partitions = 1,

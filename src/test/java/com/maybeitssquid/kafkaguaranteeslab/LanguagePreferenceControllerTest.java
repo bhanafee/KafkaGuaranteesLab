@@ -44,6 +44,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
+      "lab.topics.partitions=1",
       "resilience4j.retry.instances.languagePreferenceProducer.wait-duration=10ms",
       "lab.publish.response-timeout-ms=500"
     })

@@ -30,7 +30,7 @@ import org.springframework.test.context.ActiveProfiles;
  * The application runs, publishes and consumes, and a processing failure goes straight to
  * redelivery and the dead-letter topic.
  */
-@SpringBootTest(properties = "lab.consumer.redelivery.interval-ms=100")
+@SpringBootTest(properties = {"lab.topics.partitions=1", "lab.consumer.redelivery.interval-ms=100"})
 @ActiveProfiles("stage1")
 @DirtiesContext
 @EmbeddedKafka(

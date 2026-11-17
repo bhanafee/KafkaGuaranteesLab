@@ -35,9 +35,9 @@ import org.springframework.test.annotation.DirtiesContext;
  * container, with the idempotent producer on. The ledger shows what the consumer did with each
  * event.
  *
- * <p>The topic has three partitions, as it does when created by kafka-local.sh. The tests share one
- * context and one broker. Each uses its own events and reads the ledger by event id, so they do not
- * depend on each other or on offsets.
+ * <p>The topic has three partitions, as it does when created by the application. The tests share
+ * one context and one broker. Each uses its own events and reads the ledger by event id, so they do
+ * not depend on each other or on offsets.
  *
  * <p>The retry and redelivery intervals are shortened. The attempt counts come from
  * application.yml.

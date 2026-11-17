@@ -39,6 +39,7 @@ import org.springframework.test.annotation.DirtiesContext;
  */
 @SpringBootTest(
     properties = {
+      "lab.topics.partitions=1",
       "lab.consumer.fallback=rethrow",
       "lab.consumer.redelivery.interval-ms=100",
       "resilience4j.retry.instances.languagePreferenceConsumer.wait-duration=10ms",
