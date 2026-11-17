@@ -37,30 +37,38 @@ public class ProcessingLedger {
    * @param duplicates events processed more than once, with the number of times each was processed
    * @param dropped events acknowledged without being processed
    * @param skippedDuplicates repeats that the consumer recognised by event id and did not process
+   * @param preferences each customer's current preference as a language tag: the one in the event
+   *     processed last for that customer, which is not always the one sent last
    */
   public record Summary(
       int events,
       int processings,
       Map<String, Integer> duplicates,
       Set<String> dropped,
-      int skippedDuplicates) {}
+      int skippedDuplicates,
+      Map<String, String> preferences) {}
 
   private final Map<String, Integer> processed = new LinkedHashMap<>();
   private final List<Entry> history = new ArrayList<>();
   private final Set<String> dropped = new LinkedHashSet<>();
+  private final Map<String, String> preferences = new LinkedHashMap<>();
   private int skippedDuplicates;
 
   /** Creates an empty ledger. */
   public ProcessingLedger() {}
 
   /**
-   * Records that an event was processed.
+   * Records that an event was processed, and makes its preference the customer's current one. The
+   * last event processed wins, as in a downstream system that overwrites the stored preference.
    *
    * @param event the processed event
    */
   public synchronized void processed(LanguagePreference event) {
     processed.merge(event.eventId(), 1, Integer::sum);
     history.add(new Entry(event.eventId(), event.customerId()));
+    if (event.customerId() != null && event.preferredLanguage() != null) {
+      preferences.put(event.customerId(), event.preferredLanguage().toLanguageTag());
+    }
   }
 
   /**
@@ -102,6 +110,16 @@ public class ProcessingLedger {
   }
 
   /**
+   * Returns a customer's current preference: the one in the event processed last for that customer.
+   *
+   * @param customerId the customer
+   * @return the preference as a language tag, or null if no event of the customer was processed
+   */
+  public synchronized String preferenceOf(String customerId) {
+    return preferences.get(customerId);
+  }
+
+  /**
    * Returns the ids of a customer's events in the order they were processed, repeats included.
    *
    * @param customerId the customer
@@ -109,7 +127,7 @@ public class ProcessingLedger {
    */
   public synchronized List<String> eventIdsFor(String customerId) {
     return history.stream()
-        .filter(entry -> entry.customerId().equals(customerId))
+        .filter(entry -> customerId.equals(entry.customerId()))
         .map(Entry::eventId)
         .toList();
   }
@@ -131,7 +149,8 @@ public class ProcessingLedger {
         history.size(),
         duplicates,
         new LinkedHashSet<>(dropped),
-        skippedDuplicates);
+        skippedDuplicates,
+        new LinkedHashMap<>(preferences));
   }
 
   /** Forgets everything recorded so far. */
@@ -139,6 +158,7 @@ public class ProcessingLedger {
     processed.clear();
     history.clear();
     dropped.clear();
+    preferences.clear();
     skippedDuplicates = 0;
   }
 }

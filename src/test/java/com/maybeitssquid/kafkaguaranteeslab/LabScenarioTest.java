@@ -2,6 +2,7 @@ package com.maybeitssquid.kafkaguaranteeslab;
 
 import static com.maybeitssquid.kafkaguaranteeslab.KafkaTestSupport.awaitUntil;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.maybeitssquid.kafkaguaranteeslab.lab.FaultInjector;
 import com.maybeitssquid.kafkaguaranteeslab.lab.FaultInjector.Faults;
@@ -12,6 +13,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -62,7 +64,7 @@ class LabScenarioTest {
 
   @BeforeEach
   void clearFaults() {
-    faults.set(new Faults(0, 0, 0));
+    faults.set(Faults.none());
   }
 
   @Test
@@ -85,7 +87,7 @@ class LabScenarioTest {
   void applicationRetry_afterAnAmbiguousSend_processesTheEventTwice() throws Exception {
     // The first send is written to the topic but reported as failed. The Resilience4j retry sends
     // the event again. To the broker that is a new record with a new sequence number.
-    faults.set(new Faults(1, 0, 0));
+    faults.set(Faults.none().withAmbiguousSends(1));
     var event = new LanguagePreference("cust-retry", Locale.FRENCH);
 
     producer.publish(event).get(5, TimeUnit.SECONDS);
@@ -129,7 +131,7 @@ class LabScenarioTest {
   @Test
   void lostCommit_redeliversTheRecord_andProcessesItTwice() throws Exception {
     // The event is processed, but its offset is not committed. The container delivers it again.
-    faults.set(new Faults(0, 0, 1));
+    faults.set(Faults.none().withLostCommits(1));
     var event = new LanguagePreference("cust-commit", Locale.FRENCH);
 
     producer.publish(event).get(5, TimeUnit.SECONDS);
@@ -140,13 +142,51 @@ class LabScenarioTest {
   @Test
   void processingFailure_thatOutlastsTheRetries_dropsTheEvent() throws Exception {
     // All 3 attempts fail. The default fallback acknowledges the record unprocessed.
-    faults.set(new Faults(0, 3, 0));
+    faults.set(Faults.none().withProcessingFailures(3));
     var event = new LanguagePreference("cust-drop", Locale.FRENCH);
 
     producer.publish(event).get(5, TimeUnit.SECONDS);
 
     awaitUntil(() -> ledger.wasDropped(event.eventId()), TIMEOUT);
     assertSettledAt(event, 0);
+  }
+
+  @Test
+  void olderEventSentAgain_afterANewerOne_overwritesTheNewerPreference() throws Exception {
+    // A caller sends a preference, then a newer one, then the first again, as a late retry does.
+    // Every record is processed in the order it was written, and the stale preference wins.
+    var older = new LanguagePreference("cust-stale", Locale.FRENCH);
+    var newer = new LanguagePreference("cust-stale", Locale.GERMAN);
+
+    producer.publish(older).get(5, TimeUnit.SECONDS);
+    producer.publish(newer).get(5, TimeUnit.SECONDS);
+    producer.publish(older).get(5, TimeUnit.SECONDS);
+
+    awaitUntil(() -> ledger.eventIdsFor("cust-stale").size() == 3, TIMEOUT);
+    assertThat(ledger.eventIdsFor("cust-stale"))
+        .containsExactly(older.eventId(), newer.eventId(), older.eventId());
+    assertThat(ledger.preferenceOf("cust-stale")).isEqualTo("fr");
+  }
+
+  @Test
+  void eventThatWasNeverWritten_andIsSentAgainAfterANewerOne_overwritesIt() throws Exception {
+    // All 3 attempts of the first publish fail with nothing written. The caller sends a newer
+    // preference, then sends the first again. It is written once, behind the newer one. No event
+    // is processed twice, so recognising event ids would not help.
+    // These 3 failures count toward the producer's circuit breaker. With the 1 ambiguous send
+    // above, the class stays below the 5 failures in 10 calls that would open the circuit.
+    faults.set(Faults.none().withFailedSends(3));
+    var older = new LanguagePreference("cust-late", Locale.FRENCH);
+    var newer = new LanguagePreference("cust-late", Locale.GERMAN);
+
+    assertThatThrownBy(() -> producer.publish(older).get(5, TimeUnit.SECONDS))
+        .isInstanceOf(ExecutionException.class);
+    producer.publish(newer).get(5, TimeUnit.SECONDS);
+    producer.publish(older).get(5, TimeUnit.SECONDS);
+
+    awaitUntil(() -> ledger.eventIdsFor("cust-late").size() == 2, TIMEOUT);
+    assertThat(ledger.eventIdsFor("cust-late")).containsExactly(newer.eventId(), older.eventId());
+    assertThat(ledger.preferenceOf("cust-late")).isEqualTo("fr");
   }
 
   @Test

@@ -61,7 +61,7 @@ public class LanguagePreferenceProducer {
    * Creates the producer.
    *
    * @param kafkaTemplate sends the records
-   * @param faults supplies injected ambiguous sends
+   * @param faults supplies injected failed and ambiguous sends
    */
   public LanguagePreferenceProducer(
       KafkaTemplate<String, LanguagePreference> kafkaTemplate, FaultInjector faults) {
@@ -103,6 +103,16 @@ public class LanguagePreferenceProducer {
   public CompletableFuture<SendResult<String, LanguagePreference>> publish(
       LanguagePreference event) {
     log.info("Publishing event: eventId={} customerId={}", event.eventId(), event.customerId());
+    if (faults.takeFailedSend()) {
+      // Nothing is sent. This is what a send looks like when the broker stays unreachable until
+      // the delivery timeout runs out: the attempt fails and the topic does not hold the record.
+      log.error(
+          "Failed to publish event: eventId={} customerId={} (injected, nothing written)",
+          event.eventId(),
+          event.customerId());
+      return CompletableFuture.failedFuture(
+          new TimeoutException("Injected fault: record not written"));
+    }
     return kafkaTemplate
         .send(TOPIC, event.customerId(), event)
         .thenApply(result -> {

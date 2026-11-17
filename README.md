@@ -114,8 +114,15 @@ One record processed twice:
 
 #### Events might arrive out of order
 
+For this event the order matters more than the count. A preference that is processed twice leaves
+the same preference behind. A preference that is processed after a newer one leaves the wrong one,
+and nothing downstream shows that it is wrong.
+
 - **A resent batch lands late.** With several requests in flight, a batch that Kafka retries can
   be written behind a batch that was sent after it.
+- **An older event is sent again behind a newer one.** The caller sends a preference, then a newer
+  one, then sends the first again because its outcome was unknown or its send failed. Records are
+  processed in the order they were written, so the older preference overwrites the newer one.
 
 ### Stage 2: turn on idempotence
 
@@ -143,6 +150,8 @@ It changes none of the others:
   [Duplicate Producer Processes](#duplicate-producer-processes)).
 - **Every "one record processed twice" scenario.** Idempotence covers the hop from producer to
   broker. Offset commits and redelivery are outside it.
+- **An older event is sent again behind a newer one.** The order idempotence keeps is the order of
+  the calls to `send()`, and the older event was sent last.
 
 Idempotence protects one hop against one failure: a lost acknowledgment inside a single call to
 `send()`.
@@ -167,6 +176,9 @@ On the producer side:
 - **The retry is itself a source of duplicates.** Each attempt is a new call to `send()`, exactly
   like a caller that sends the event again. If an earlier attempt was written, the topic holds
   both.
+- **The retry writes events late.** While a publish waits for its next attempt, a newer event of
+  the same customer can be published. The retry then writes the older event behind it. This needs
+  no duplicate: the older event is written once, in the wrong place.
 - **The circuit breaker sends nothing.** While the broker is down it fails publishes at once, so
   callers get a quick 503 and do not wait through timeouts. It can also reject publishes that
   would have succeeded.
@@ -210,6 +222,8 @@ Resilience4j does nothing for these:
 | The group rebalances | Processed twice | No effect | More likely |
 | A delivery fails part-way | Processed twice | No effect | No effect |
 | A resent batch lands late | Out of order | Fixed | No effect |
+| An older event is sent again behind a newer one | Stale overwrite | No effect | No effect |
+| The application retries a publish behind a newer event | Stale overwrite | No effect | New with Resilience4j |
 
 What is left is at-least-once delivery with gaps. Closing them takes changes outside Kafka's
 producer settings:
@@ -229,6 +243,11 @@ producer settings:
   with `lab.consumer.fallback=rethrow`.
 - **Unsent events:** store the event durably before publishing, as in a transactional outbox. The
   lab does not do this. It reports the failure to the caller.
+- **Stale overwrites:** give every event a version that grows with each change of a customer's
+  preference, such as a sequence number or the time of the change at its source. The consumer
+  ignores an event older than the one it has stored. Deduplication by event id is not enough: it
+  catches a late event only if that event was already processed once. The same check is needed
+  before a dead letter is replayed. The lab does not do this.
 
 ### Producer-side details
 
@@ -349,12 +368,14 @@ The ledger shows what the consumer did with each event:
 
 ```bash
 curl http://localhost:8080/lab/ledger
-# {"events":1,"processings":1,"duplicates":{},"dropped":[],"skippedDuplicates":0}
+# {"events":1,"processings":1,"duplicates":{},"dropped":[],"skippedDuplicates":0,"preferences":{"abc123":"fr-CA"}}
 ```
 
 - `duplicates` lists the events processed more than once, with the number of times.
 - `dropped` lists the events acknowledged without being processed.
 - `skippedDuplicates` counts the repeats the consumer recognised and did not process.
+- `preferences` gives each customer's current language: the one in the event processed last,
+  which is not always the one sent last.
 
 The ledger is in memory and starts empty with the application.
 `curl -X DELETE http://localhost:8080/lab/ledger` empties it. The `/lab` endpoints are unprotected
@@ -387,6 +408,8 @@ curl -X POST http://localhost:8080/lab/faults \
 | The fallback acknowledges a failed event | `{"processingFailures": 3}`, then send one event. All 3 attempts fail | The event under `dropped` |
 | It is dead-lettered | Start with the `stage2` profile (see [Stages](#stages)). `{"processingFailures": 3}`, then send one event. All 3 deliveries fail | Nothing in the ledger, and a pointer in `dead-letters` |
 | The outcome is unknown | Stop the broker with `./kafka-local.sh stop`, then send one event | 503 `Event not confirmed` after 10 s |
+| An older event is sent again behind a newer one | Send one event, send a second for the same customer with another language, then send the first again with its `eventId` | `preferences` shows the first language |
+| An event is written late | `{"failedSends": 3}`, then send one event. All 3 attempts fail and nothing is written: 503 `Event not published`. Send a second for the same customer with another language, then the first again with its `eventId` | `preferences` shows the first language, and `duplicates` is empty |
 | Duplicates closed by event id | Start with `--lab.consumer.deduplicate=true`, then repeat any of the first three | `skippedDuplicates` is 1 and `duplicates` is empty |
 
 The dead-letter experiment uses `stage2` because that profile has no retry and no circuit breaker
@@ -401,6 +424,11 @@ redelivers the record after its backoff. That is what a consumer sees after it s
 and commit and was restarted. A commit that merely fails redelivers nothing until such a restart
 or a rebalance. Each lost commit also uses up one delivery: with `{"lostCommits": 3}` the event is
 processed 3 times and then dead-lettered.
+
+The two stale-overwrite rows end the same way for different reasons. In the first, the older event is
+processed twice, and `--lab.consumer.deduplicate=true` puts it right by skipping the repeat. In the
+second it is processed once, after the newer one, and deduplication changes nothing.
+`LabDeduplicationTest` shows the application's own retry doing the same without the caller's help.
 
 Pass a setting on the command line like this:
 
