@@ -437,7 +437,11 @@ half-open state; the consumer leaves this at the Resilience4j default of 10.
 
 #### Retry defaults
 
-Both instances: 3 attempts, 1 s fixed wait, retries on any `Exception`.
+Both instances: 3 attempts, 1 s fixed wait, retries on any `Exception`. The producer's retry
+ignores `CallNotPermittedException`, so a publish fails at once while its circuit is open.
+
+Each fallback is declared on `@Retry`, the outer of the two annotations, so it runs once after
+the last attempt and not once per attempt.
 
 ### DefaultErrorHandler
 

@@ -22,8 +22,10 @@ public class LanguagePreferenceProducer {
     this.kafkaTemplate = kafkaTemplate;
   }
 
-  @Retry(name = "languagePreferenceProducer")
-  @CircuitBreaker(name = "languagePreferenceProducer", fallbackMethod = "publishFallback")
+  // The fallback belongs to @Retry, the outer of the two, so it runs once per publish and not once
+  // per attempt.
+  @Retry(name = "languagePreferenceProducer", fallbackMethod = "publishFallback")
+  @CircuitBreaker(name = "languagePreferenceProducer")
   public CompletableFuture<SendResult<String, LanguagePreference>> publish(
       LanguagePreference event) {
     log.info("Publishing event: customerId={}", event.customerId());
@@ -42,12 +44,13 @@ public class LanguagePreferenceProducer {
         });
   }
 
-  // Called by Resilience4j for every failed attempt, and for every call rejected while the circuit
-  // is open. The event is not stored anywhere: the failed future tells the caller it was not sent.
+  // Called by Resilience4j once a publish has finally failed: after the last retry attempt, or at
+  // once when the circuit is open, because the retry ignores CallNotPermittedException. The event
+  // is not stored anywhere: the failed future tells the caller it was not sent.
   public CompletableFuture<SendResult<String, LanguagePreference>> publishFallback(
       LanguagePreference event, Throwable t) {
     log.warn(
-        "Publish attempt failed — event not sent: customerId={} reason={}",
+        "Publish failed — event not sent: customerId={} reason={}",
         event.customerId(),
         t.getMessage());
     return CompletableFuture.failedFuture(t);

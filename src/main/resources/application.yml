@@ -45,6 +45,9 @@ resilience4j:
         wait-duration: 1s
         retry-exceptions:
           - java.lang.Exception
+        # An open circuit rejects every attempt, so retrying only delays the failure.
+        ignore-exceptions:
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
       languagePreferenceConsumer:
         max-attempts: 3
         wait-duration: 1s
