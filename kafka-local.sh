@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Runs a single-node Kafka broker (KRaft mode, no ZooKeeper) in a container for the lab.
-#
-# The container runtime is the first of `container` (Apple), `podman` and `docker` found on the
-# PATH. Set KAFKA_RUNTIME to choose one.
+# Runs a single-node Kafka broker (KRaft mode, no ZooKeeper) for the lab, using Apple's
+# `container` runtime (https://github.com/apple/container). macOS on Apple silicon only.
 set -euo pipefail
 
 CONTAINER=kafka-guarantees-lab-kafka
@@ -18,55 +16,37 @@ usage() {
     exit 1
 }
 
-pick_runtime() {
-    if [[ -n "${KAFKA_RUNTIME:-}" ]]; then
-        command -v "$KAFKA_RUNTIME" >/dev/null || {
-            echo "KAFKA_RUNTIME=${KAFKA_RUNTIME} is not on the PATH." >&2
-            exit 1
-        }
-        echo "$KAFKA_RUNTIME"
-        return
+require_container() {
+    if ! command -v container >/dev/null; then
+        echo "Apple's 'container' is not installed. See https://github.com/apple/container" >&2
+        exit 1
     fi
-    local candidate
-    for candidate in container podman docker; do
-        if command -v "$candidate" >/dev/null; then
-            echo "$candidate"
-            return
-        fi
-    done
-    echo "No container runtime found. Install container, podman or docker." >&2
-    exit 1
-}
-
-# Apple's `container` lists with `ls` and has no --filter. With --name, the name is the id.
-running_names() {
-    if [[ "$RUNTIME" == container ]]; then
-        "$RUNTIME" ls --quiet
-    else
-        "$RUNTIME" ps --format '{{.Names}}'
+    if ! container system status >/dev/null 2>&1; then
+        echo "The container service is not running. Start it with: container system start" >&2
+        exit 1
     fi
 }
 
+# With --name, the name is the container's id, which is what `ls --quiet` prints.
 is_running() {
-    running_names | grep -qx "$CONTAINER"
+    container ls --quiet | grep -qx "$CONTAINER"
 }
 
 remove_container() {
-    "$RUNTIME" rm --force "$CONTAINER" >/dev/null 2>&1 || true
+    container rm --force "$CONTAINER" >/dev/null 2>&1 || true
 }
 
 kafka_topics() {
-    "$RUNTIME" exec "$CONTAINER" /opt/kafka/bin/kafka-topics.sh \
+    container exec "$CONTAINER" /opt/kafka/bin/kafka-topics.sh \
         --bootstrap-server "localhost:${PORT}" "$@"
 }
 
 cmd="${1:-}"
 [[ -z "$cmd" ]] && usage
 
-RUNTIME=$(pick_runtime)
-
 case "$cmd" in
   start)
+    require_container
     if is_running; then
         echo "Kafka is already running (${CONTAINER})"
         exit 0
@@ -75,8 +55,8 @@ case "$cmd" in
     # Remove a stopped container from a previous run
     remove_container
 
-    echo "Starting Kafka on localhost:${PORT} with ${RUNTIME} ..."
-    "$RUNTIME" run --detach \
+    echo "Starting Kafka on localhost:${PORT} ..."
+    container run --detach \
         --name "$CONTAINER" \
         --publish "${PORT}:9092" \
         --env KAFKA_NODE_ID=1 \
@@ -92,7 +72,7 @@ case "$cmd" in
 
     echo -n "Waiting for broker to be ready ..."
     for i in $(seq 1 30); do
-        if "$RUNTIME" exec "$CONTAINER" \
+        if container exec "$CONTAINER" \
                /opt/kafka/bin/kafka-broker-api-versions.sh \
                --bootstrap-server "localhost:${PORT}" &>/dev/null; then
             echo " ready."
@@ -118,6 +98,7 @@ case "$cmd" in
     ;;
 
   stop)
+    require_container
     if is_running; then
         echo "Stopping ${CONTAINER} ..."
         remove_container
@@ -128,8 +109,9 @@ case "$cmd" in
     ;;
 
   status)
+    require_container
     if is_running; then
-        echo "Kafka is running (${CONTAINER}, ${RUNTIME}) on localhost:${PORT}"
+        echo "Kafka is running (${CONTAINER}) on localhost:${PORT}"
         echo ""
         echo "Topics:"
         kafka_topics --list
