@@ -11,6 +11,7 @@ import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,6 +40,13 @@ class LabDeduplicationTest {
   @Autowired private ProcessingLedger ledger;
   @Autowired private FaultInjector faults;
 
+  /** The tests share one context, and two of them read the ledger's count of skipped repeats. */
+  @BeforeEach
+  void startClean() {
+    faults.set(Faults.none());
+    ledger.reset();
+  }
+
   @Test
   void applicationRetry_afterAnAmbiguousSend_isProcessedOnce() throws Exception {
     faults.set(Faults.none().withAmbiguousSends(1));
@@ -47,6 +55,21 @@ class LabDeduplicationTest {
     producer.publish(event).get(5, TimeUnit.SECONDS);
 
     // Both records reach the consumer. The second is recognised and skipped.
+    awaitUntil(() -> ledger.summary().skippedDuplicates() == 1, Duration.ofSeconds(15));
+    assertThat(ledger.processedCount(event.eventId())).isEqualTo(1);
+    assertThat(ledger.summary().duplicates()).isEmpty();
+  }
+
+  @Test
+  void deliveryThatFailsPartWay_isNotRepeated() throws Exception {
+    // The first attempt records the event and then throws. The retry finds the id in the ledger
+    // and skips the event. This works because the ledger entry is the change and the record of
+    // the id in one step.
+    faults.set(Faults.none().withPartialFailures(1));
+    var event = new LanguagePreference("cust-partial", Locale.FRENCH);
+
+    producer.publish(event).get(5, TimeUnit.SECONDS);
+
     awaitUntil(() -> ledger.summary().skippedDuplicates() == 1, Duration.ofSeconds(15));
     assertThat(ledger.processedCount(event.eventId())).isEqualTo(1);
     assertThat(ledger.summary().duplicates()).isEmpty();

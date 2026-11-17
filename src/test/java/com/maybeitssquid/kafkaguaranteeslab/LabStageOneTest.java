@@ -60,6 +60,19 @@ class LabStageOneTest {
   }
 
   @Test
+  void deliveryThatFailsPartWay_isRepeatedByTheRedelivery() throws Exception {
+    // With one attempt per delivery, the failure reaches the listener container. The record is
+    // delivered again, and the change the first delivery made is made a second time.
+    faults.set(Faults.none().withPartialFailures(1));
+    var event = new LanguagePreference("cust-partial", Locale.FRENCH);
+
+    producer.publish(event).get(5, TimeUnit.SECONDS);
+
+    awaitUntil(() -> ledger.processedCount(event.eventId()) == 2, Duration.ofSeconds(15));
+    assertThat(faults.pending().partialFailures()).isZero();
+  }
+
+  @Test
   void eventIsPublishedAndProcessed_andAFailingOneIsDeadLettered() throws Exception {
     var processed = new LanguagePreference("cust-1", Locale.FRENCH);
     producer.publish(processed).get(5, TimeUnit.SECONDS);

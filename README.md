@@ -405,12 +405,13 @@ curl -X POST http://localhost:8080/lab/faults \
 | The application retries a publish | `{"ambiguousSends": 1}`, then send one event. The first send is written and reported as failed, and the retry sends it again | The event under `duplicates`, with 2 |
 | The caller sends the event again | Send one event, then send it again with the same `eventId` | The event under `duplicates`, with 2 |
 | The offset commit is lost | `{"lostCommits": 1}`, then send one event. It is processed and not acknowledged, then redelivered | The event under `duplicates`, with 2 |
+| A delivery fails part-way | `{"partialFailures": 1}`, then send one event. The first attempt records the event and then fails, and the retry records it again | The event under `duplicates`, with 2 |
 | The fallback acknowledges a failed event | `{"processingFailures": 3}`, then send one event. All 3 attempts fail | The event under `dropped` |
 | It is dead-lettered | Start with the `stage2` profile (see [Stages](#stages)). `{"processingFailures": 3}`, then send one event. All 3 deliveries fail | Nothing in the ledger, and a pointer in `dead-letters` |
 | The outcome is unknown | Stop the broker with `./kafka-local.sh stop`, then send one event | 503 `Event not confirmed` after 10 s |
 | An older event is sent again behind a newer one | Send one event, send a second for the same customer with another language, then send the first again with its `eventId` | `preferences` shows the first language |
 | An event is written late | `{"failedSends": 3}`, then send one event. All 3 attempts fail and nothing is written: 503 `Event not published`. Send a second for the same customer with another language, then the first again with its `eventId` | `preferences` shows the first language, and `duplicates` is empty |
-| Duplicates closed by event id | Start with `--lab.consumer.deduplicate=true`, then repeat any of the first three | `skippedDuplicates` is 1 and `duplicates` is empty |
+| Duplicates closed by event id | Start with `--lab.consumer.deduplicate=true`, then repeat any of the first four | `skippedDuplicates` is 1 and `duplicates` is empty |
 
 The dead-letter experiment uses `stage2` because that profile has no retry and no circuit breaker
 in the way. With `--lab.consumer.fallback=rethrow` alone, each delivery makes 3 attempts and every
@@ -424,6 +425,11 @@ redelivers the record after its backoff. That is what a consumer sees after it s
 and commit and was restarted. A commit that merely fails redelivers nothing until such a restart
 or a rebalance. Each lost commit also uses up one delivery: with `{"lostCommits": 3}` the event is
 processed 3 times and then dead-lettered.
+
+In the `stage1` and `stage2` profiles there is no retry, and the part-way failure is repeated by
+the redelivery instead. With deduplication on it is not repeated at all, because the lab's ledger
+entry is the change and the record of the id in one step. A consumer that makes the change and
+records the id in two steps can still fail between them.
 
 The two stale-overwrite rows end the same way for different reasons. In the first, the older event is
 processed twice, and `--lab.consumer.deduplicate=true` puts it right by skipping the repeat. In the
