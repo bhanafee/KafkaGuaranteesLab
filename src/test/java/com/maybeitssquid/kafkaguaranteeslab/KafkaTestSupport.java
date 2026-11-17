@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import com.maybeitssquid.kafkaguaranteeslab.model.DeadLetterPointer;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
@@ -12,6 +14,9 @@ import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
 import org.springframework.kafka.test.utils.KafkaTestUtils;
@@ -30,6 +35,34 @@ final class KafkaTestSupport {
       }
       Thread.sleep(50);
     }
+  }
+
+  /**
+   * Starts an instance of the application against a broker that outlives it, and waits until its
+   * consumer has partitions. An instance that is closed while its consumer is still joining stays
+   * in the group as a pending member, and the next rebalance waits most of a minute for it.
+   */
+  static ConfigurableApplicationContext startApp(String bootstrapServers, String... extraArgs)
+      throws Exception {
+    List<String> args = new ArrayList<>();
+    args.add("--spring.kafka.bootstrap-servers=" + bootstrapServers);
+    args.add("--server.port=0");
+    args.add("--lab.consumer.redelivery.interval-ms=100");
+    args.addAll(List.of(extraArgs));
+    var app =
+        new SpringApplicationBuilder(KafkaGuaranteesLabApplication.class)
+            .run(args.toArray(String[]::new));
+    awaitUntil(() -> hasPartitions(app), Duration.ofSeconds(60));
+    return app;
+  }
+
+  /** Returns whether the instance's listener container has been assigned partitions. */
+  static boolean hasPartitions(ConfigurableApplicationContext app) {
+    return app.getBean(KafkaListenerEndpointRegistry.class).getListenerContainers().stream()
+        .allMatch(container -> {
+          var assigned = container.getAssignedPartitions();
+          return assigned != null && !assigned.isEmpty();
+        });
   }
 
   /**
