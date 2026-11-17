@@ -21,15 +21,25 @@ import org.springframework.stereotype.Service;
  *
  * <ul>
  *   <li><b>Retry:</b> up to 3 attempts, with a fixed 1 s wait between them, on any {@code
- *       Exception}.
+ *       Exception} except {@code CallNotPermittedException}. An open circuit rejects every attempt,
+ *       so retrying a rejected call would only add the waits.
  *   <li><b>Circuit breaker:</b> looks at the last 10 calls. When at least half of them failed, the
  *       circuit opens for 30 s and rejects every call with {@code CallNotPermittedException}. It
  *       then lets trial calls through to decide whether to close again.
  * </ul>
  *
- * <p><b>The fallback belongs to the retry.</b> A fallback on the outer annotation runs once, after
- * the last attempt. On the circuit breaker it would turn every failed attempt into a normal return,
- * and the retry would never see a failure to retry.
+ * <p><b>The fallback belongs to the retry.</b> A fallback on the outer annotation runs once: after
+ * the last attempt, or at once for a call the open circuit rejected. On the circuit breaker it
+ * would turn every failed attempt into a normal return, and the retry would never see a failure to
+ * retry.
+ *
+ * <p><b>An open circuit fails every event, not only the ones that would have failed.</b> The
+ * circuit breaker does not look at the event. While the circuit is open, {@link #process} is not
+ * called at all, and each record goes straight to {@link #processFallback}. With {@code
+ * lab.consumer.fallback=acknowledge} the consumer therefore acknowledges every record it reads for
+ * those 30 s without processing it, including events that the downstream system would have
+ * accepted. With {@code rethrow} each of them is redelivered, rejected again and dead-lettered, and
+ * its pointer names the rejected call.
  *
  * <p><b>This configuration slows the consumer down.</b> The Resilience4j retry waits by sleeping on
  * the thread that called {@link #process}, which is the listener thread. While this application, a
@@ -40,8 +50,9 @@ import org.springframework.stereotype.Service;
  * <ul>
  *   <li>A record that keeps failing holds its partition for the two 1 s waits plus the time of the
  *       three attempts. Nothing behind it is read meanwhile.
- *   <li>An open circuit does not remove the waits. This retry also retries the rejection, so each
- *       record still costs about 2 s while the circuit is open.
+ *   <li>An open circuit removes the waits. The retry does not repeat a rejected call, so a record
+ *       read while the circuit is open reaches the fallback at once. The consumer then moves
+ *       through its partitions at full speed without processing anything.
  *   <li>The time adds up across the records of one poll. If a batch takes longer than {@code
  *       max.poll.interval.ms}, the broker removes the consumer from its group, and the records it
  *       had not yet committed are delivered again.
@@ -112,8 +123,10 @@ public class LanguagePreferenceProcessor {
    * <p><b>Where exceptions land.</b> An exception thrown here travels up that same call stack. It
    * reaches the circuit breaker first, which records the failure, and then the retry, which waits
    * and calls this method again. If the last retry attempt fails, the retry logic in Resilience4j
-   * calls {@link #processFallback} with the exception. {@code onMessage} sees an exception only if
-   * the fallback throws one.
+   * calls {@link #processFallback} with the exception. When the circuit is open this method is not
+   * called: the circuit breaker throws {@code CallNotPermittedException}, the retry does not repeat
+   * it, and the fallback gets that exception. {@code onMessage} sees an exception only if the
+   * fallback throws one.
    *
    * @param event the event to process
    */
@@ -142,9 +155,9 @@ public class LanguagePreferenceProcessor {
   }
 
   /**
-   * Called by the retry when {@link #process} has failed on every attempt, including attempts
-   * rejected because the circuit is open. What it does next is set by {@code
-   * lab.consumer.fallback}.
+   * Called by the retry when {@link #process} has failed on every attempt, or at once when the open
+   * circuit rejected the call. What it does next is set by {@code lab.consumer.fallback}. It cannot
+   * tell an event that failed from one that was never tried, and treats both alike.
    *
    * <p><b>Thread.</b> This runs on the same thread and in the same call stack as {@code process}:
    * the one of the {@code onMessage} call that read the message.
@@ -162,7 +175,7 @@ public class LanguagePreferenceProcessor {
    * waits while the record is retried.
    *
    * @param event the event that could not be processed
-   * @param t the failure of the last attempt
+   * @param t the failure of the last attempt, or the rejection by the open circuit
    */
   public void processFallback(LanguagePreference event, Throwable t) {
     if (fallbackMode == FallbackMode.RETHROW) {

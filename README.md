@@ -196,6 +196,13 @@ On the consumer side:
   unprocessed, with no dead-letter pointer. With `lab.consumer.fallback=rethrow` it throws, and
   the record goes to redelivery and the dead-letter topic
   (see [Consumer processing failures](#consumer-processing-failures)).
+- **An open circuit rejects a healthy event.** The circuit breaker counts failed calls and does
+  not look at the event. Once 5 of the last 10 calls have failed, it rejects every call for 30 s,
+  and each rejected call goes to the fallback. By default the consumer then acknowledges every
+  record it reads without processing it, including events that would have been processed. A few
+  failing events cost every event that arrives in those 30 s. With
+  `lab.consumer.fallback=rethrow` they are dead-lettered instead
+  (see [Experiments](#experiments)).
 
 Resilience4j does nothing for these:
 
@@ -213,6 +220,7 @@ Resilience4j does nothing for these:
 | It is dead-lettered | Not processed | No effect | Less often |
 | Retention outruns the consumer | Not processed | No effect | More likely |
 | The fallback acknowledges a failed event | Not processed | No effect | New with Resilience4j |
+| An open circuit rejects a healthy event | Not processed | No effect | New with Resilience4j |
 | Kafka resends a batch | Processed twice | Fixed | No effect |
 | The caller sends the event again | Processed twice | No effect | No effect |
 | The application retries a publish | Processed twice | No effect | New with Resilience4j |
@@ -241,7 +249,8 @@ producer settings:
   the change and the record of the id, so the second holds without effort. A real consumer has to
   arrange it.
 - **Unprocessed events:** never acknowledge a record that was not processed. The lab does this
-  with `lab.consumer.fallback=rethrow`.
+  with `lab.consumer.fallback=rethrow`. An event that the open circuit rejects is then
+  dead-lettered. It is processed only if someone replays it.
 - **Unsent events:** store the event durably before publishing, as in a transactional outbox. The
   lab does not do this. It reports the failure to the caller.
 - **Stale overwrites:** give every event a version that grows with each change of a customer's
@@ -473,6 +482,7 @@ curl -X POST http://localhost:8080/lab/faults \
 | The offset commit is lost | `{"lostCommits": 1}`, then send one event. It is processed and not acknowledged, then redelivered | The event under `duplicates`, with 2 |
 | A delivery fails part-way | `{"partialFailures": 1}`, then send one event. The first attempt records the event and then fails, and the retry records it again | The event under `duplicates`, with 2 |
 | The fallback acknowledges a failed event | `{"processingFailures": 3}`, then send one event. All 3 attempts fail | The event under `dropped` |
+| An open circuit rejects a healthy event | `{"processingFailures": 10}`, then send 4 events and wait until all 4 are under `dropped`, about 6 s. The tenth failed call opens the circuit. Within 30 s, send a fifth event | The fifth event under `dropped` too, although no fault was left for it. `/actuator/circuitbreakers` shows `OPEN` |
 | It is dead-lettered | Start with the `stage2` profile (see [Stages](#stages)). `{"processingFailures": 3}`, then send one event. All 3 deliveries fail | Nothing in the ledger, and a pointer in `dead-letters` |
 | The outcome is unknown | Send one event and wait for its 202. Stop the broker with `./kafka-local.sh stop`, then send a second event for another customer: 503 `Event not confirmed` after 10 s. Within 2 minutes, start the broker again with `./kafka-local.sh start` | The second event in the ledger, under `preferences`, although its caller was told 503 |
 | The consumer stops between processing and commit | `{"crashBeforeCommit": 1}`, then send one event. The application processes it and stops. Start the application again | The event under `duplicates`, with 2 |
@@ -488,6 +498,32 @@ failure counts toward the consumer's circuit breaker. Enough of them open the ci
 record is then dead-lettered for a rejected call and not for the injected fault. Injected
 failures count toward the circuit breakers in every experiment, so check
 `/actuator/circuitbreakers` if a result is not what the table says.
+
+The open-circuit experiment takes 10 failed calls. The consumer's circuit breaker judges the last
+10 calls and opens when at least 5 of them failed, but not before it has seen 10. Every attempt
+counts as a call, not every event:
+
+- The first 3 events fail 3 attempts each. That is 9 calls, and each event is dropped by the
+  fallback after about 2 s.
+- The first attempt of the fourth event is the tenth call. The window is full and every call in
+  it failed, so the circuit opens. The second attempt is rejected, the retry does not repeat a
+  rejected call, and the fourth event is dropped at once. No fault is left over.
+- For the next 30 s `process()` is not called. The fifth event goes straight to the fallback and
+  is acknowledged, like every other record the consumer reads in that time.
+
+The first event after those 30 s is processed. It is one of 10 trial calls that decide whether the
+circuit closes again. The events dropped meanwhile are not delivered again.
+
+Ten failures in a row open the circuit whatever came before. Fewer are enough once the window
+holds 10 calls of which 5 failed, so failures left in the window by one experiment can open the
+circuit in the next. `curl http://localhost:8080/lab/faults` shows the faults still pending.
+
+With `--lab.consumer.fallback=rethrow` the same open circuit dead-letters the events. Set
+`{"processingFailures": 10}` and send 3 events. The first fails all 9 calls of its 3 deliveries and
+its pointer names the injected fault. The first call for the second event is the tenth failure and
+opens the circuit. The second and third events are then rejected on every delivery, and their
+pointers name `CallNotPermittedException`. The third event met no fault. The ledger shows none of
+the three.
 
 In the outcome-unknown experiment the 503 says only that the wait of
 `lab.publish.response-timeout-ms` is over. The record stays in the producer's memory, and Kafka
@@ -536,8 +572,9 @@ Pass a setting on the command line like this:
 ./gradlew bootRun --args='--lab.consumer.deduplicate=true'
 ```
 
-`LabScenarioTest`, `LabDeduplicationTest`, `LabStageOneTest`, `LabRestartTest` and
-`OutcomeUnknownTest` run these experiments automatically. `LabRestartTest` starts and stops
+`LabScenarioTest`, `LabDeduplicationTest`, `LabStageOneTest`, `LabRestartTest`,
+`OutcomeUnknownTest`, `ConsumerOpenCircuitTest` and `ConsumerOpenCircuitRethrowTest` run these
+experiments automatically. `LabRestartTest` starts and stops
 application instances against one broker. It cannot halt its own JVM, so its crash ends the
 thread concerned and leaves the record unacknowledged. `OutcomeUnknownTest` does not stop the
 broker. It holds the produce request in the proxy described under [Stages](#stages) until the
@@ -730,8 +767,9 @@ stages:
 
 1. **Resilience4j retry.** `process()` is attempted up to 3 times within one delivery, 1 s apart.
    The consumer thread waits in between, and nothing else is read from the partition.
-2. **Fallback.** When every attempt has failed, or the circuit is open, `processFallback()` runs.
-   What it does is set by `lab.consumer.fallback`.
+2. **Fallback.** When every attempt has failed, `processFallback()` runs. What it does is set by
+   `lab.consumer.fallback`. When the circuit is open, `process()` is not called and the fallback
+   runs at once: the retry does not repeat a call that the circuit breaker rejected.
 3. **Redelivery and dead-lettering.** These apply only if an exception reaches `onMessage()`,
    which for a processing failure means the fallback threw.
 
@@ -744,6 +782,11 @@ The two fallback settings are a choice between progress and the delivery guarant
 - **`rethrow`.** The fallback throws. The record is redelivered and, after the redeliveries are
   exhausted, gets a dead-letter pointer. Each redelivery repeats the 3 attempts, so a record is
   tried up to 9 times before it is dead-lettered, and its partition waits meanwhile.
+
+The fallback cannot tell an event that failed from one that the open circuit rejected, and treats
+both alike. While the circuit is open, `acknowledge` drops every event the consumer reads, and
+`rethrow` dead-letters every one of them after 3 rejected deliveries. Either way a healthy event
+is not processed (see [Experiments](#experiments)).
 
 A record with a null value (a tombstone) carries no preference. The consumer acknowledges it
 without processing it and without dead-lettering it.
@@ -869,13 +912,16 @@ Both the producer and consumer have independent instances configured in `applica
 | `languagePreferenceProducer` | 50% | 80% | 2 s | 30 s |
 | `languagePreferenceConsumer` | 50% | — | — | 30 s |
 
-Both instances use a count-based sliding window of 10 calls. The producer permits 3 calls in the
+Both instances use a count-based sliding window of 10 calls. A circuit does not open before its
+window holds 10 calls. The producer permits 3 calls in the
 half-open state; the consumer leaves this at the Resilience4j default of 10.
 
 #### Retry defaults
 
-Both instances: 3 attempts, 1 s fixed wait, retries on any `Exception`. The producer's retry
-ignores `CallNotPermittedException`, so a publish fails at once while its circuit is open.
+Both instances: 3 attempts, 1 s fixed wait, retries on any `Exception` except
+`CallNotPermittedException`. A call that an open circuit rejects is not repeated. A publish fails
+at once while the producer's circuit is open, and a record read while the consumer's circuit is
+open goes to the fallback at once.
 
 A producer attempt lasts as long as one `send()`, which Kafka bounds with `delivery.timeout.ms`.
 The 3 attempts and 2 waits can therefore take about 6 minutes, and they continue after
@@ -883,7 +929,8 @@ The 3 attempts and 2 waits can therefore take about 6 minutes, and they continue
 (see [How Long a Publish Can Run](#how-long-a-publish-can-run)).
 
 Each fallback is declared on `@Retry`, the outer of the two annotations, so it runs once after
-the last attempt and not once per attempt.
+the last attempt and not once per attempt. It also runs for a call that the retry does not
+repeat, such as one rejected by the open circuit.
 
 ### DefaultErrorHandler
 
