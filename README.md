@@ -352,22 +352,25 @@ curl -X POST http://localhost:8080/lab/faults \
 | The caller sends the event again | Send one event, then send it again with the same `eventId` | The event under `duplicates`, with 2 |
 | The offset commit is lost | `{"lostCommits": 1}`, then send one event. It is processed and not acknowledged, then redelivered | The event under `duplicates`, with 2 |
 | The fallback acknowledges a failed event | `{"processingFailures": 3}`, then send one event. All 3 attempts fail | The event under `dropped` |
-| It is dead-lettered | Start with `--lab.consumer.fallback=rethrow`. `{"processingFailures": 9}`, then send one event. 3 deliveries of 3 attempts fail | Nothing in the ledger, and a pointer in `dead-letters` |
+| It is dead-lettered | Start with the `stage2` profile (see [Stages](#stages)). `{"processingFailures": 3}`, then send one event. All 3 deliveries fail | Nothing in the ledger, and a pointer in `dead-letters` |
 | The outcome is unknown | Stop the broker with `./kafka-local.sh stop`, then send one event | 503 `Event not confirmed` after 10 s |
 | Duplicates closed by event id | Start with `--lab.consumer.deduplicate=true`, then repeat any of the first three | `skippedDuplicates` is 1 and `duplicates` is empty |
 
-The dead-letter experiment can leave the consumer's circuit open, because 9 failures fill most of
-its 10-call window. For the next 30 s every event is then rejected and dead-lettered too. Check
-`/actuator/circuitbreakers` before the next experiment.
+The dead-letter experiment uses `stage2` because that profile has no retry and no circuit breaker
+in the way. With `--lab.consumer.fallback=rethrow` alone, each delivery makes 3 attempts and every
+failure counts toward the consumer's circuit breaker. Enough of them open the circuit, and the
+record is then dead-lettered for a rejected call and not for the injected fault. Injected
+failures count toward the circuit breakers in every experiment, so check
+`/actuator/circuitbreakers` if a result is not what the table says.
 
 Pass a setting on the command line like this:
 
 ```bash
-./gradlew bootRun --args='--lab.consumer.fallback=rethrow'
+./gradlew bootRun --args='--lab.consumer.deduplicate=true'
 ```
 
-`LabScenarioTest`, `LabDeduplicationTest` and `LanguagePreferenceConsumerDeadLetterTest` run
-these experiments automatically, apart from stopping the broker.
+`LabScenarioTest`, `LabDeduplicationTest` and `LabStageOneTest` run these experiments
+automatically, apart from stopping the broker.
 
 ### Stages
 

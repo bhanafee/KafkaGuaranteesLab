@@ -16,6 +16,27 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/lab")
 public class LabController {
 
+  /**
+   * The body of a request to set faults. A count that is left out is null and means 0, so a request
+   * can name only the fault it wants.
+   *
+   * @param ambiguousSends sends to write to the topic and then report as failed
+   * @param processingFailures calls to {@code process()} that should throw
+   * @param lostCommits records to process and then not acknowledge
+   */
+  public record FaultRequest(
+      Integer ambiguousSends, Integer processingFailures, Integer lostCommits) {
+
+    FaultInjector.Faults toFaults() {
+      return new FaultInjector.Faults(
+          orZero(ambiguousSends), orZero(processingFailures), orZero(lostCommits));
+    }
+
+    private static int orZero(Integer count) {
+      return count == null ? 0 : count;
+    }
+  }
+
   private final ProcessingLedger ledger;
   private final FaultInjector faults;
 
@@ -63,8 +84,8 @@ public class LabController {
    * @return the faults now pending
    */
   @PostMapping("/faults")
-  public FaultInjector.Faults setFaults(@RequestBody FaultInjector.Faults requested) {
-    faults.set(requested);
+  public FaultInjector.Faults setFaults(@RequestBody FaultRequest requested) {
+    faults.set(requested.toFaults());
     return faults.pending();
   }
 }
