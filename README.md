@@ -93,8 +93,9 @@ Two records in the topic for one event:
 
 One record processed twice:
 
-- **The offset commit is lost.** `process()` succeeds, the commit fails, and the record is
-  delivered again.
+- **The offset commit is lost.** `process()` succeeds and the commit fails. Nothing is redelivered
+  at that moment, and the next successful commit in the partition covers the record. If the
+  consumer stops or the group rebalances before that commit, the record is delivered again.
 - **The consumer stops between processing and commit.** After the restart the record is
   delivered again.
 - **The group rebalances.** Records that were processed but not yet committed go to another
@@ -144,8 +145,16 @@ remaining scenarios happen. They remove none of them, and they bring costs of th
 
 On the producer side:
 
-- **The broker stays unreachable** happens less often. The retry repeats a failed publish up to 3
-  times, so a short outage no longer reaches the caller as a 503. A longer one still does.
+- **The broker stays unreachable** is unchanged for the caller. Kafka already retries inside one
+  `send()` until `delivery.timeout.ms` runs out, 120 s by default, so it rides out a short outage
+  without help. The controller answers 503 after `lab.publish.response-timeout-ms`, 10 s. The
+  Resilience4j retry starts only when a `send()` has failed, which is long after the caller has
+  its answer.
+- **A send that fails quickly is not helped either.** It fails for a reason Kafka does not retry,
+  such as a record that is too large, and a second attempt gives the same result.
+- **The outcome is unknown** for longer. The 3 attempts go on in the background after the 503, each
+  for up to 120 s. An event can reach the topic about 6 minutes after its caller was told it was
+  not confirmed.
 - **The retry is itself a source of duplicates.** Each attempt is a new call to `send()`, exactly
   like a caller that sends the event again. If an earlier attempt was written, the topic holds
   both.
@@ -169,7 +178,7 @@ On the consumer side:
 
 Resilience4j does nothing for these:
 
-- **The application stops mid-publish** and **the outcome is unknown.**
+- **The application stops mid-publish.**
 - **The caller sends the event again** and **a restarted or second instance sends it again.**
 - **The offset commit is lost** and **the consumer stops between processing and commit.**
 
@@ -177,9 +186,9 @@ Resilience4j does nothing for these:
 
 | Scenario | Outcome | Idempotence | Resilience4j |
 |---|---|---|---|
-| The broker stays unreachable | Not sent | No effect | Less often |
+| The broker stays unreachable | Not sent | No effect | No effect |
 | The application stops mid-publish | Not sent | No effect | No effect |
-| The outcome is unknown | Not sent, or sent twice | No effect | No effect |
+| The outcome is unknown | Not sent, or sent twice | No effect | Unknown for longer |
 | It is dead-lettered | Not processed | No effect | Less often |
 | Retention outruns the consumer | Not processed | No effect | More likely |
 | The fallback acknowledges a failed event | Not processed | No effect | New with Resilience4j |
@@ -197,8 +206,16 @@ What is left is at-least-once delivery with gaps. Closing them takes changes out
 producer settings:
 
 - **Duplicates:** give every event its own id and have the consumer ignore an id it has already
-  processed. That covers every "processed twice" row, whichever tier caused it. The lab does this
-  with `lab.consumer.deduplicate=true`, against an in-memory ledger.
+  processed. That covers every "processed twice" row, whichever tier caused it, on two conditions:
+    - The record of processed ids outlives the consumer. A record that is lost in a restart cannot
+      recognise an event delivered again after it.
+    - The id is recorded in the same atomic step as the change it guards, for example in one
+      database transaction. If the id is recorded first, a failure between the two loses the
+      event. If the change is made first, a failure between the two repeats it.
+
+  The lab does this with `lab.consumer.deduplicate=true`, against an in-memory ledger. The ledger
+  entry is both the change and the record of the id, so the second condition holds without
+  effort. The ledger is empty after a restart, so the first does not hold.
 - **Unprocessed events:** never acknowledge a record that was not processed. The lab does this
   with `lab.consumer.fallback=rethrow`.
 - **Unsent events:** store the event durably before publishing, as in a transactional outbox. The
@@ -368,6 +385,12 @@ failure counts toward the consumer's circuit breaker. Enough of them open the ci
 record is then dead-lettered for a rejected call and not for the injected fault. Injected
 failures count toward the circuit breakers in every experiment, so check
 `/actuator/circuitbreakers` if a result is not what the table says.
+
+The `lostCommits` fault fails the delivery after `process()` has returned, and the error handler
+redelivers the record after its backoff. That is what a consumer sees after it stopped between processing
+and commit and was restarted. A commit that merely fails redelivers nothing until such a restart
+or a rebalance. Each lost commit also uses up one delivery: with `{"lostCommits": 3}` the event is
+processed 3 times and then dead-lettered.
 
 Pass a setting on the command line like this:
 
@@ -672,6 +695,10 @@ half-open state; the consumer leaves this at the Resilience4j default of 10.
 
 Both instances: 3 attempts, 1 s fixed wait, retries on any `Exception`. The producer's retry
 ignores `CallNotPermittedException`, so a publish fails at once while its circuit is open.
+
+A producer attempt lasts as long as one `send()`, which Kafka bounds with `delivery.timeout.ms`.
+The 3 attempts and 2 waits can therefore take about 6 minutes, and they continue after
+`POST /language-preferences` has answered 503.
 
 Each fallback is declared on `@Retry`, the outer of the two annotations, so it runs once after
 the last attempt and not once per attempt.

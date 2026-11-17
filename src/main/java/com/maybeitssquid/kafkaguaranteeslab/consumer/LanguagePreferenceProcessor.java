@@ -94,7 +94,9 @@ public class LanguagePreferenceProcessor {
    * <p><b>Duplicates.</b> The same event can arrive more than once. With {@code
    * lab.consumer.deduplicate} off, each arrival is processed and the ledger shows the repeat. With
    * it on, an event whose id was already processed is skipped. Recognising an event by its own id
-   * is what Kafka's idempotent producer cannot do.
+   * is what Kafka's idempotent producer cannot do. In the lab the ledger entry is both the change
+   * and the record of the id. A real consumer must record the id in the same atomic step as the
+   * change it guards, in a store that outlives the consumer.
    *
    * <p>Downstream processing can fail. A downstream client usually brings its own retry and circuit
    * breaker logic, and it may throw exceptions. The logic in this implementation assumes that
