@@ -17,7 +17,9 @@ import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.annotation.DirtiesContext;
 
 /** The lab endpoints, called over HTTP the way the README shows. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = "lab.topics.partitions=1")
 @DirtiesContext
 @EmbeddedKafka(
     partitions = 1,

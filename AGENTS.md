@@ -24,7 +24,7 @@ A Spring Boot lab that shows why Kafka's idempotent producer does not give exact
 
 **NVD key (optional):** `dependencyCheckAnalyze` reads the key from the `NVD_API_KEY` environment variable or the `nvd.apiKey` Gradle property. With a key, it updates the NVD data live. Without one, it uses the local NVD cache and logs a warning. CI runs without a key, so it also uses the cache.
 
-**External dependencies:** Requires Kafka broker (see Local Development for local setup).
+**External dependencies:** Running the application requires a Kafka broker (see Local Development for local setup). The tests use an embedded broker.
 
 Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). CI tests on Java 17, 21, and 25.
 
@@ -41,6 +41,8 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 ## Architecture
 
 ### Delivery guarantee layering
+
+**Topics**: `KafkaConfig` declares the application's three topics as `NewTopic` beans, which Spring Boot's `KafkaAdmin` creates at start if they are missing: `language-preferences` and `dead-letters` with `lab.topics.partitions` partitions (default 3), and `lab-ledger` with one. No declaration sets a replication factor, so the broker's default applies. `KafkaAdmin` adds partitions to an existing topic that has fewer than declared and leaves one with more as it is. It runs once, at start, and without a broker it logs an error and the application still starts.
 
 **Producer side** (`producer/`):
 - `KafkaConfig` sets `acks=all`, idempotence enabled, unlimited retries — Kafka-level at-least-once. It sets `delivery.timeout.ms` from `lab.producer.delivery-timeout-ms` (120000, Kafka's default), which bounds one `send()`. A publish goes on in the background after the controller has answered 503; the README's "How Long a Publish Can Run" gives the limits, so keep it in step with these settings.
@@ -72,6 +74,8 @@ Build uses Java 25 toolchain, compiles to Java 17 bytecode (`release = "17"`). C
 
 - `LabScenarioTest` runs the README's scenarios through the real producer, embedded broker and listener container on three partitions. Its tests share one context and assert on the ledger by event id, never on offsets.
 - The container-based consumer tests that assert on committed offsets (`...DeadLetterTest`, `...PoisonPillTest`, `...ProcessingFailureTest`) start a fresh context and broker per test method.
+- A test class whose `@EmbeddedKafka` has `partitions = 1` must also set `lab.topics.partitions=1`. Without it the application grows the topics to three partitions at start, and an assertion on one partition's offset or on a single dead-letter record no longer tests what it says.
+- `TopicDeclarationTest` starts the application against a broker without topics and with auto-creation off, and checks the partition counts. It also checks that `lab.topics.partitions=1` leaves a one-partition topic alone.
 - `LabRestartTest` runs the scenarios that need a restart or two instances. It starts its own broker and starts and stops application instances against it with `SpringApplicationBuilder`. It replaces the `Crasher` action with one that throws an `Error`, because a test cannot halt its own JVM.
 - `LostAcknowledgmentTest` shows the one difference between stage 1 and stage 2. Its broker advertises the port of `LostAcknowledgmentProxy`, a test-only TCP proxy that reads Kafka's request and response framing and closes the producer's connection in place of forwarding one produce acknowledgment. The broker is started without topics, because creating them goes through the proxy, which needs the broker's port first.
 - `OutcomeUnknownTest` shows that an event answered 503 `Event not confirmed` is processed afterwards. It uses the same proxy to hold the produce request until the caller has its response. `KafkaTestSupport.startBrokerBehind()` starts a broker behind the proxy for both tests.
@@ -97,10 +101,12 @@ For CVE patch management, see the `gradle-security-patch` skill. Use `/gradle-se
 
 **Running the application:**
 ```bash
-./kafka-local.sh start       # start local Kafka (KRaft mode, no ZooKeeper); needs Apple's container and `container system start`
+./kafka-local.sh start       # start local Kafka (KRaft mode, no ZooKeeper) in a container
 ./gradlew bootRun            # start the application (expects Kafka on localhost:9092)
 ./kafka-local.sh stop        # stop local Kafka and keep its data; the next start resumes the same cluster
 ./kafka-local.sh remove      # stop local Kafka and delete its data
 ```
+
+`kafka-local.sh` uses the first of Apple's `container`, `podman` and `docker` that is installed and running. `KAFKA_LOCAL_RUNTIME` forces one. The script never starts a runtime's service or virtual machine. What differs between the runtimes is in the functions under "What differs between the runtimes" at the top of the script; keep new differences there. The script also creates `language-preferences` and `dead-letters`, for a broker that is replaced while the application runs; keep its `PARTITIONS` in step with `lab.topics.partitions`.
 
 The application publishes `LanguagePreference` events to Kafka and consumes them for processing.

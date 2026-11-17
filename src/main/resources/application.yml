@@ -11,6 +11,11 @@ spring:
 
 # The lab's own settings. They are not Spring Boot properties.
 lab:
+  topics:
+    # Partitions of the language-preferences and dead-letters topics, which the application creates
+    # at start if they are missing. It adds partitions to a topic that has fewer. Three, so that
+    # ordering per key across partitions can be observed and two instances can share the topic.
+    partitions: 3
   producer:
     # Kafka's idempotent producer. The stage1 profile turns it off.
     idempotence: true

@@ -12,7 +12,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.annotation.DirtiesContext;
 
-@SpringBootTest
+@SpringBootTest(properties = "lab.topics.partitions=1")
 @DirtiesContext
 @EmbeddedKafka(
     partitions = 1,

@@ -33,7 +33,7 @@ import tools.jackson.core.exc.StreamReadException;
  * Poison pill guarantee: a record whose payload cannot be deserialized gets a dead-letter pointer
  * and does not block the records behind it. The pointer does not quote the payload.
  */
-@SpringBootTest(properties = "lab.consumer.redelivery.interval-ms=100")
+@SpringBootTest(properties = {"lab.topics.partitions=1", "lab.consumer.redelivery.interval-ms=100"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
 @EmbeddedKafka(
     partitions = 1,

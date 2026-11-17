@@ -37,6 +37,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  */
 @SpringBootTest(
     properties = {
+      "lab.topics.partitions=1",
       "lab.consumer.redelivery.interval-ms=100",
       "resilience4j.retry.instances.languagePreferenceConsumer.wait-duration=10ms"
     })

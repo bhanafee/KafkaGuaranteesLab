@@ -3,6 +3,7 @@ package com.maybeitssquid.kafkaguaranteeslab.config;
 import com.maybeitssquid.kafkaguaranteeslab.consumer.DeadLetterPointerRecoverer;
 import com.maybeitssquid.kafkaguaranteeslab.model.DeadLetterPointer;
 import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
+import com.maybeitssquid.kafkaguaranteeslab.producer.LanguagePreferenceProducer;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -100,18 +101,47 @@ public class KafkaConfig {
         deadLetterKafkaTemplate(), deadLetterTopic, Duration.ofMillis(deadLetterSendTimeoutMs));
   }
 
-  // ── Ledger ──────────────────────────────────────────────────────────────
+  // ── Topics ──────────────────────────────────────────────────────────────
+
+  // Spring's Kafka admin creates a declared topic at start if it is missing, and adds partitions to
+  // one that has fewer than declared. It leaves a topic with more partitions as it is. No
+  // declaration sets a replication factor, so each topic gets the broker's default.
 
   /**
-   * Declares the topic that holds the ledger's journal, which Spring's Kafka admin creates at start
-   * if it is missing. One partition gives the journal's entries a single order.
+   * Declares the topic that holds the events, so that the lab does not depend on how the broker was
+   * set up. A broker that creates topics on first use gives them its own default partition count,
+   * usually one.
+   *
+   * @param partitions the number of partitions, from {@code lab.topics.partitions}
+   * @return the topic declaration
+   */
+  @Bean
+  public NewTopic languagePreferencesTopic(@Value("${lab.topics.partitions}") int partitions) {
+    return TopicBuilder.name(LanguagePreferenceProducer.TOPIC).partitions(partitions).build();
+  }
+
+  /**
+   * Declares the topic that holds the dead-letter pointers, with as many partitions as the events'
+   * topic.
+   *
+   * @param partitions the number of partitions, from {@code lab.topics.partitions}
+   * @return the topic declaration
+   */
+  @Bean
+  public NewTopic deadLettersTopic(@Value("${lab.topics.partitions}") int partitions) {
+    return TopicBuilder.name(deadLetterTopic).partitions(partitions).build();
+  }
+
+  /**
+   * Declares the topic that holds the ledger's journal. One partition gives the journal's entries a
+   * single order.
    *
    * @param topic the journal's topic
    * @return the topic declaration
    */
   @Bean
   public NewTopic ledgerTopic(@Value("${lab.ledger.topic}") String topic) {
-    return TopicBuilder.name(topic).partitions(1).replicas(1).build();
+    return TopicBuilder.name(topic).partitions(1).build();
   }
 
   // ── Consumer ────────────────────────────────────────────────────────────
