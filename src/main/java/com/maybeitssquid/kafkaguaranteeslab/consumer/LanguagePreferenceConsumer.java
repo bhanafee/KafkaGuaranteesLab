@@ -67,13 +67,13 @@ public class LanguagePreferenceConsumer {
       processor.process(event);
       if (faults.takeLostCommit()) {
         // The event has been processed, but the offset is not committed. The record is delivered
-        // again, as it would be after a lost commit or a consumer that stopped at this point.
+        // again, as it would be after a consumer that stopped at this point was restarted.
         throw new IllegalStateException("Injected fault: offset commit lost");
       }
       ack.acknowledge(); // commit offset only once processing has returned
     } catch (Exception ex) {
       log.error(
-          "Processing failed — will be retried by error handler: customerId={}",
+          "Delivery failed, record not acknowledged — error handler takes over: customerId={}",
           event.customerId(),
           ex);
       // Do NOT ack. DefaultErrorHandler in KafkaConfig redelivers the record. Once its retries are

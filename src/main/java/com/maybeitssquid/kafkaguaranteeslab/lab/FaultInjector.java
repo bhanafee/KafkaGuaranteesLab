@@ -70,8 +70,13 @@ public class FaultInjector {
   }
 
   /**
-   * Asks whether the record that was just processed should go unacknowledged. This imitates an
-   * offset commit that is lost, or a consumer that stops between processing and commit.
+   * Asks whether the record that was just processed should go unacknowledged. The caller then fails
+   * the delivery, and the error handler redelivers the record after its backoff. This imitates a
+   * consumer that stops between processing and commit and is restarted. A commit that merely fails
+   * redelivers nothing until such a restart or a rebalance.
+   *
+   * <p>Each lost commit uses up one delivery of the error handler's redelivery budget. Enough of
+   * them in a row dead-letter a record that was processed every time.
    *
    * @return true if the caller should fail instead of acknowledging
    */
