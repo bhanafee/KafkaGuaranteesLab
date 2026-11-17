@@ -1,3 +1,8 @@
+server:
+  # The /lab endpoints are unprotected and two of their faults stop the JVM, so the application
+  # listens on this machine only. Set server.address=0.0.0.0 to open it to the network.
+  address: localhost
+
 spring:
   kafka:
     bootstrap-servers: localhost:9092
@@ -26,6 +31,11 @@ lab:
   dead-letter:
     topic: dead-letters
     send-timeout-ms: 10000
+  ledger:
+    # The topic that holds the ledger, so that it survives a restart and is shared by instances.
+    topic: lab-ledger
+    # How long to wait for the replay at start, and for each entry to be written and read back.
+    timeout-ms: 10000
   circuit-breakers:
     # The stage1 and stage2 profiles turn the circuit breakers off.
     enabled: true

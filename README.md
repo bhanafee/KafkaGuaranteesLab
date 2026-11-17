@@ -236,9 +236,10 @@ producer settings:
       database transaction. If the id is recorded first, a failure between the two loses the
       event. If the change is made first, a failure between the two repeats it.
 
-  The lab does this with `lab.consumer.deduplicate=true`, against an in-memory ledger. The ledger
-  entry is both the change and the record of the id, so the second condition holds without
-  effort. The ledger is empty after a restart, so the first does not hold.
+  The lab does this with `lab.consumer.deduplicate=true`, against its ledger. The ledger is kept
+  in a Kafka topic and replayed at start, so the first condition holds. A ledger entry is both
+  the change and the record of the id, so the second holds without effort. A real consumer has to
+  arrange it.
 - **Unprocessed events:** never acknowledge a record that was not processed. The lab does this
   with `lab.consumer.fallback=rethrow`.
 - **Unsent events:** store the event durably before publishing, as in a transactional outbox. The
@@ -344,7 +345,9 @@ container system start       # once, if the container service is not already run
 ```
 
 The first start pulls the `apache/kafka` image. The script creates the `language-preferences` and
-`dead-letters` topics with three partitions each.
+`dead-letters` topics with three partitions each. The application creates the `lab-ledger` topic
+itself. Without a broker the application still starts, after waiting `lab.ledger.timeout-ms` for
+the ledger.
 
 ### Send an event and see what happened
 
@@ -377,9 +380,12 @@ curl http://localhost:8080/lab/ledger
 - `preferences` gives each customer's current language: the one in the event processed last,
   which is not always the one sent last.
 
-The ledger is in memory and starts empty with the application.
-`curl -X DELETE http://localhost:8080/lab/ledger` empties it. The `/lab` endpoints are unprotected
-and are for the lab only.
+The ledger is kept in the `lab-ledger` topic. The application replays it at start, so it survives
+a restart, and every instance of the application shows the same ledger.
+`curl -X DELETE http://localhost:8080/lab/ledger` empties it for all of them.
+
+The `/lab` endpoints are unprotected, and two of the faults stop the JVM. The application therefore
+listens on `localhost` only. Start it with `--server.address=0.0.0.0` to open it to the network.
 
 Other things to look at:
 
@@ -409,6 +415,9 @@ curl -X POST http://localhost:8080/lab/faults \
 | The fallback acknowledges a failed event | `{"processingFailures": 3}`, then send one event. All 3 attempts fail | The event under `dropped` |
 | It is dead-lettered | Start with the `stage2` profile (see [Stages](#stages)). `{"processingFailures": 3}`, then send one event. All 3 deliveries fail | Nothing in the ledger, and a pointer in `dead-letters` |
 | The outcome is unknown | Stop the broker with `./kafka-local.sh stop`, then send one event | 503 `Event not confirmed` after 10 s |
+| The consumer stops between processing and commit | `{"crashBeforeCommit": 1}`, then send one event. The application processes it and stops. Start the application again | The event under `duplicates`, with 2 |
+| The application stops mid-publish | `{"crashBeforeSend": 1}`, then send one event. The application stops and `curl` reports an empty reply. Start the application again | The event is not in the ledger |
+| A restarted or second instance sends it again | Start a second instance (see [A second instance](#a-second-instance)). Send one event to port 8080, then the same event with its `eventId` to port 8081 | The event under `duplicates`, with 2, on both ports |
 | An older event is sent again behind a newer one | Send one event, send a second for the same customer with another language, then send the first again with its `eventId` | `preferences` shows the first language |
 | An event is written late | `{"failedSends": 3}`, then send one event. All 3 attempts fail and nothing is written: 503 `Event not published`. Send a second for the same customer with another language, then the first again with its `eventId` | `preferences` shows the first language, and `duplicates` is empty |
 | Duplicates closed by event id | Start with `--lab.consumer.deduplicate=true`, then repeat any of the first four | `skippedDuplicates` is 1 and `duplicates` is empty |
@@ -436,14 +445,21 @@ processed twice, and `--lab.consumer.deduplicate=true` puts it right by skipping
 second it is processed once, after the newer one, and deduplication changes nothing.
 `LabDeduplicationTest` shows the application's own retry doing the same without the caller's help.
 
+The two crash faults halt the JVM with no shutdown, as a killed process stops. `./gradlew bootRun`
+reports this as a failed build. The faults are held in memory, so the restarted application has
+none pending. With `--lab.consumer.deduplicate=true` on the restart, the event that was processed
+before the crash is recognised from the replayed ledger and skipped.
+
 Pass a setting on the command line like this:
 
 ```bash
 ./gradlew bootRun --args='--lab.consumer.deduplicate=true'
 ```
 
-`LabScenarioTest`, `LabDeduplicationTest` and `LabStageOneTest` run these experiments
-automatically, apart from stopping the broker.
+`LabScenarioTest`, `LabDeduplicationTest`, `LabStageOneTest` and `LabRestartTest` run these
+experiments automatically, apart from stopping the broker. `LabRestartTest` starts and stops
+application instances against one broker. It cannot halt its own JVM, so its crash ends the
+thread concerned and leaves the record unacknowledged.
 
 ### Stages
 
@@ -459,6 +475,18 @@ started. Without a profile the application runs stage 3.
 In stages 1 and 2 a retry has one attempt, the circuit breakers are disabled, and a processing
 failure goes straight to redelivery and the dead-letter topic.
 
+### A second instance
+
+A second instance of the application joins the same consumer group and shares the ledger:
+
+```bash
+./gradlew bootRun --args='--server.port=8081'
+```
+
+The three partitions are divided between the two instances. Each has its own producer, with its
+own producer id. Stop one with `crashBeforeCommit` and the other takes over its partitions once
+the session timeout of 45 s has passed, then processes the uncommitted record again.
+
 ### What the lab cannot reproduce
 
 Some scenarios need a fault outside the application, and the lab does not create them:
@@ -467,7 +495,11 @@ Some scenarios need a fault outside the application, and the lab does not create
   idempotence fixes, so they are the only observable difference between stage 1 and stage 2.
   Producing them needs the broker's acknowledgment to be lost on the network, for example with a
   fault-injecting proxy between the application and the broker.
-- **The group rebalances.** This needs a second consumer joining or leaving mid-batch.
+- **The group rebalances.** A second instance that joins or leaves duplicates nothing here,
+  because the listener commits each record before it reads the next. A duplicate needs a consumer
+  that still holds a processed, uncommitted record when the group takes its partition away. That
+  happens when processing takes longer than `max.poll.interval.ms`, and the lab has no fault that
+  stalls processing for that long.
 - **Retention outruns the consumer.** This needs a topic with a short retention and a consumer
   that is held back.
 
@@ -776,6 +808,9 @@ properties.
 | `lab.consumer.fallback` | `acknowledge` | `acknowledge` drops an event that cannot be processed. `rethrow` sends it to redelivery and the dead-letter topic |
 | `lab.consumer.deduplicate` | `false` | Skip an event whose id was already processed |
 | `lab.publish.response-timeout-ms` | `10000` | How long `POST /language-preferences` waits for the publish outcome |
+| `lab.ledger.topic` | `lab-ledger` | Topic that holds the ledger. The application creates it with one partition |
+| `lab.ledger.timeout-ms` | `10000` | How long to wait for the ledger's replay at start, and for each entry to be written and read back |
+| `server.address` | `localhost` | A Spring Boot property. The lab sets it because the `/lab` endpoints are unprotected |
 
 ## Layout
 
@@ -798,8 +833,12 @@ treeView-beta
                     "LanguagePreferenceProcessor.java"
                 "lab"
                     "CircuitBreakerSwitch.java"
+                    "Crasher.java"
                     "FaultInjector.java"
+                    "KafkaLedgerJournal.java"
                     "LabController.java"
+                    "LedgerEntry.java"
+                    "LedgerJournal.java"
                     "ProcessingLedger.java"
                 "producer"
                     "LanguagePreferenceProducer.java"

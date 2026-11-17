@@ -21,13 +21,18 @@ public class FaultInjector {
    * @param processingFailures calls to {@code process()} that will throw before changing anything
    * @param partialFailures calls to {@code process()} that will make their change and then throw
    * @param lostCommits records that will be processed and then not acknowledged
+   * @param crashBeforeSend publishes that will stop the application before anything is sent
+   * @param crashBeforeCommit records that will be processed, after which the application stops
+   *     before the offset is committed
    */
   public record Faults(
       int failedSends,
       int ambiguousSends,
       int processingFailures,
       int partialFailures,
-      int lostCommits) {
+      int lostCommits,
+      int crashBeforeSend,
+      int crashBeforeCommit) {
 
     /**
      * Returns a set with no faults, as a starting point for the {@code with} methods.
@@ -35,7 +40,7 @@ public class FaultInjector {
      * @return a set in which every count is 0
      */
     public static Faults none() {
-      return new Faults(0, 0, 0, 0, 0);
+      return new Faults(0, 0, 0, 0, 0, 0, 0);
     }
 
     /**
@@ -45,7 +50,14 @@ public class FaultInjector {
      * @return the copy
      */
     public Faults withFailedSends(int count) {
-      return new Faults(count, ambiguousSends, processingFailures, partialFailures, lostCommits);
+      return new Faults(
+          count,
+          ambiguousSends,
+          processingFailures,
+          partialFailures,
+          lostCommits,
+          crashBeforeSend,
+          crashBeforeCommit);
     }
 
     /**
@@ -55,7 +67,14 @@ public class FaultInjector {
      * @return the copy
      */
     public Faults withAmbiguousSends(int count) {
-      return new Faults(failedSends, count, processingFailures, partialFailures, lostCommits);
+      return new Faults(
+          failedSends,
+          count,
+          processingFailures,
+          partialFailures,
+          lostCommits,
+          crashBeforeSend,
+          crashBeforeCommit);
     }
 
     /**
@@ -65,7 +84,14 @@ public class FaultInjector {
      * @return the copy
      */
     public Faults withProcessingFailures(int count) {
-      return new Faults(failedSends, ambiguousSends, count, partialFailures, lostCommits);
+      return new Faults(
+          failedSends,
+          ambiguousSends,
+          count,
+          partialFailures,
+          lostCommits,
+          crashBeforeSend,
+          crashBeforeCommit);
     }
 
     /**
@@ -75,7 +101,14 @@ public class FaultInjector {
      * @return the copy
      */
     public Faults withPartialFailures(int count) {
-      return new Faults(failedSends, ambiguousSends, processingFailures, count, lostCommits);
+      return new Faults(
+          failedSends,
+          ambiguousSends,
+          processingFailures,
+          count,
+          lostCommits,
+          crashBeforeSend,
+          crashBeforeCommit);
     }
 
     /**
@@ -85,7 +118,48 @@ public class FaultInjector {
      * @return the copy
      */
     public Faults withLostCommits(int count) {
-      return new Faults(failedSends, ambiguousSends, processingFailures, partialFailures, count);
+      return new Faults(
+          failedSends,
+          ambiguousSends,
+          processingFailures,
+          partialFailures,
+          count,
+          crashBeforeSend,
+          crashBeforeCommit);
+    }
+
+    /**
+     * Returns a copy with a different count of crashes before a send.
+     *
+     * @param count publishes that will stop the application before anything is sent
+     * @return the copy
+     */
+    public Faults withCrashBeforeSend(int count) {
+      return new Faults(
+          failedSends,
+          ambiguousSends,
+          processingFailures,
+          partialFailures,
+          lostCommits,
+          count,
+          crashBeforeCommit);
+    }
+
+    /**
+     * Returns a copy with a different count of crashes before a commit.
+     *
+     * @param count records that will be processed, after which the application stops
+     * @return the copy
+     */
+    public Faults withCrashBeforeCommit(int count) {
+      return new Faults(
+          failedSends,
+          ambiguousSends,
+          processingFailures,
+          partialFailures,
+          lostCommits,
+          crashBeforeSend,
+          count);
     }
   }
 
@@ -94,6 +168,8 @@ public class FaultInjector {
   private final AtomicInteger processingFailures = new AtomicInteger();
   private final AtomicInteger partialFailures = new AtomicInteger();
   private final AtomicInteger lostCommits = new AtomicInteger();
+  private final AtomicInteger crashBeforeSend = new AtomicInteger();
+  private final AtomicInteger crashBeforeCommit = new AtomicInteger();
 
   /** Creates an injector with no faults pending. */
   public FaultInjector() {}
@@ -109,6 +185,8 @@ public class FaultInjector {
     processingFailures.set(Math.max(0, faults.processingFailures()));
     partialFailures.set(Math.max(0, faults.partialFailures()));
     lostCommits.set(Math.max(0, faults.lostCommits()));
+    crashBeforeSend.set(Math.max(0, faults.crashBeforeSend()));
+    crashBeforeCommit.set(Math.max(0, faults.crashBeforeCommit()));
   }
 
   /**
@@ -122,7 +200,9 @@ public class FaultInjector {
         ambiguousSends.get(),
         processingFailures.get(),
         partialFailures.get(),
-        lostCommits.get());
+        lostCommits.get(),
+        crashBeforeSend.get(),
+        crashBeforeCommit.get());
   }
 
   /**
@@ -180,6 +260,26 @@ public class FaultInjector {
    */
   public boolean takeLostCommit() {
     return take(lostCommits);
+  }
+
+  /**
+   * Asks whether the application should stop now, before this publish sends anything. This is the
+   * application stopping mid-publish: the caller's connection breaks and the event is in no topic.
+   *
+   * @return true if the caller should stop the application
+   */
+  public boolean takeCrashBeforeSend() {
+    return take(crashBeforeSend);
+  }
+
+  /**
+   * Asks whether the application should stop now, after the record was processed and before its
+   * offset is committed. After a restart the record is delivered again.
+   *
+   * @return true if the caller should stop the application
+   */
+  public boolean takeCrashBeforeCommit() {
+    return take(crashBeforeCommit);
   }
 
   private static boolean take(AtomicInteger remaining) {

@@ -6,6 +6,7 @@ import com.maybeitssquid.kafkaguaranteeslab.model.LanguagePreference;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
+import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DefaultErrorHandler;
@@ -89,6 +91,20 @@ public class KafkaConfig {
   public DeadLetterPointerRecoverer deadLetterPointerRecoverer() {
     return new DeadLetterPointerRecoverer(
         deadLetterKafkaTemplate(), deadLetterTopic, Duration.ofMillis(deadLetterSendTimeoutMs));
+  }
+
+  // ── Ledger ──────────────────────────────────────────────────────────────
+
+  /**
+   * Declares the topic that holds the ledger's journal, which Spring's Kafka admin creates at start
+   * if it is missing. One partition gives the journal's entries a single order.
+   *
+   * @param topic the journal's topic
+   * @return the topic declaration
+   */
+  @Bean
+  public NewTopic ledgerTopic(@Value("${lab.ledger.topic}") String topic) {
+    return TopicBuilder.name(topic).partitions(1).replicas(1).build();
   }
 
   // ── Consumer ────────────────────────────────────────────────────────────
